@@ -1,4 +1,5 @@
 // +build !windows
+
 package service
 
 import (
@@ -10,7 +11,7 @@ import (
 type systemNoService struct {
 }
 
-func (s systemNoService) Init(option ServiceOption) error {
+func (s systemNoService) Init(Option) error {
 	return nil
 }
 

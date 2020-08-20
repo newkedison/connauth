@@ -3,9 +3,9 @@ package service
 import (
 	"errors"
 	"io/ioutil"
-	"strings"
 	"os"
 	"os/signal"
+	"strings"
 
 	"connauth/utils/logrus/hooks"
 
@@ -13,7 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var config ServiceOption
+var config Option
 
 type program struct {
 	exit chan struct{}
@@ -23,7 +23,7 @@ type program struct {
 type systemWindows struct {
 }
 
-func (s systemWindows) Init(option ServiceOption) error {
+func (s systemWindows) Init(option Option) error {
 	option.Name = strings.TrimSpace(option.Name)
 	if len(option.Name) == 0 {
 		return errors.New("Name must not be empty")

@@ -5,15 +5,14 @@ import (
 	"io/ioutil"
 	"net"
 
-	yaml "gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v2"
 )
 
 var globalConfig *config
 
 // const value
 const (
-	DefaultConfigFile         = "config.yaml"
-	DefaultRedisLoggerMaxSize = 0
+	DefaultConfigFile = "config.yaml"
 )
 
 func newUint32(x uint32) *uint32 {
@@ -21,7 +20,7 @@ func newUint32(x uint32) *uint32 {
 }
 
 type authRule struct {
-	Token           string   // support wildcast
+	Token           string   // support wildcard
 	AlwaysAllowIPs  []string // white list of IP addresses of this token, support CIDR notation, these IPs will never expired, default: empty
 	AuthExpiredTime *uint32  // auto delete temporary auth IP after N seconds, 0 for not delete, default: 3600
 }
@@ -44,7 +43,7 @@ type forwardConfig struct {
 	ForwardAddr   string     // address of read backend, eg: 127.0.0.1:8080
 	AllowRules    []authRule // empty means DENY ALL
 	DropDelayTime *uint32    // milliseconds before close an unauth connection, 0 for close immediately, default: 0
-	MaxConnection *uint32    // maximum auth connection, reject new connection if current connection exceed this limitation, 0 for no limitation, defautl: 0
+	MaxConnection *uint32    // maximum auth connection, reject new connection if current connection exceed this limitation, 0 for no limitation, default: 0
 }
 
 func (c *forwardConfig) CheckValid() error {
@@ -103,20 +102,20 @@ func readConfig(fileName string) (*config, error) {
 	c := &config{}
 	err = yaml.Unmarshal(content, c)
 	if err != nil {
-		return nil, fmt.Errorf("Parse config file %s fail: %v", fileName, err)
+		return nil, fmt.Errorf("parse config file %s fail: %v", fileName, err)
 	}
 	if c.RedisLogger.Enabled {
 		if c.RedisLogger.Addr == "" {
-			return nil, fmt.Errorf("Must provide the address of redis server")
+			return nil, fmt.Errorf("must provide the address of redis server")
 		}
 		if c.RedisLogger.Port < 1 || c.RedisLogger.Port > 65534 {
-			return nil, fmt.Errorf("Invalid redis server port.")
+			return nil, fmt.Errorf("invalid redis server port")
 		}
 		if c.RedisLogger.Key == "" {
-			return nil, fmt.Errorf("Must provide a list key in redis")
+			return nil, fmt.Errorf("must provide a list key in redis")
 		}
 		if c.RedisLogger.DB < 0 || c.RedisLogger.DB > 15 {
-			return nil, fmt.Errorf("Invalid redis DB")
+			return nil, fmt.Errorf("invalid redis DB")
 		}
 		if c.RedisLogger.MaxSize < 0 {
 			c.RedisLogger.MaxSize = 0

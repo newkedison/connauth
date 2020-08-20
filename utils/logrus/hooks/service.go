@@ -20,7 +20,7 @@ func NewServiceHook(l _service.Logger) *ServiceHook {
 func (hook *ServiceHook) Fire(entry *logrus.Entry) error {
 	line, err := entry.String()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to read entry, %v", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Unable to read entry, %v", err)
 		return err
 	}
 

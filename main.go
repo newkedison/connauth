@@ -6,12 +6,13 @@ import (
 	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
-	buildin_log "log"
+	_log "log"
 
 	"connauth/utils/service"
 	"github.com/davecgh/go-spew/spew"
 )
 
+//noinspection GoUnusedGlobalVariable
 var dump = spew.Dump
 
 func getCurrentPath() string {
@@ -37,7 +38,7 @@ func Main(exit <-chan struct{}) {
 		//     dump(globalConfig)
 	}()
 
-	// wating for the exit signal
+	// waiting for the exit signal
 	<-exit
 }
 
@@ -45,13 +46,13 @@ func main() {
 	var err error
 	if globalConfig, err = readConfig(
 		path.Join(getCurrentPath(), DefaultConfigFile)); err != nil {
-		buildin_log.Fatalln("Read config fail:", err)
+		_log.Fatalln("Read config fail:", err)
 	}
 	if err := initLogger(globalConfig); err != nil {
-		buildin_log.Fatalln("Config logger fail:", err)
+		_log.Fatalln("Config logger fail:", err)
 	}
 
-	service.Init(service.ServiceOption{
+	_ = service.Init(service.Option{
 		Name:        globalConfig.Service.ServiceName,
 		DisplayName: globalConfig.Service.DisplayName,
 		Description: globalConfig.Service.Description,

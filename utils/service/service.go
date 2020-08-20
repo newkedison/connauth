@@ -1,23 +1,23 @@
 package service
 
 var (
-	_system  system
+	_system system
 )
 
 type system interface {
-	Init(option ServiceOption) error
+	Init(option Option) error
 	Interactive() bool
 	Platform() string
 	Run(func(<-chan struct{})) error
 }
 
-type ServiceOption struct {
+type Option struct {
 	Name        string
 	DisplayName string
 	Description string
 }
 
-func Init(option ServiceOption) error {
+func Init(option Option) error {
 	return _system.Init(option)
 }
 
