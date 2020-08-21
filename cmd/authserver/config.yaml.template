@@ -1,0 +1,62 @@
+# available level: trace, debug, info, warn, error, fatal, panic
+loglevel: "debug"
+
+# if want to run as service on windows, uncomment below
+# service:
+#   servicename: "authserver"
+#   displayname: "authserver"
+#   description: "auth client and forward to the real backend"
+
+# uncomment below to write log to redis
+# redislogger:
+#   enabled: true
+#   addr: "127.0.0.1"
+#   port: 6379
+#   password: ""
+#   key: "authserver/log"
+
+# UDP port for auth, send auth data to this address
+# NOTE: There will be no reply regardless of authed or not
+authaddr: "0.0.0.0:33333"
+
+# list all forward configs here
+forwardconfigs:
+  # bind to TCP port of all network interfaces
+  - bindport: 33333
+    # this was the address of real backend
+    # will forward connections from bindport to forwardaddr if the ip of client was authed
+    forwardaddr: "127.0.0.1:22222"
+    # list all valid tokens here, use asterisk(*) for wildcard
+    # can be omit, default: empty
+    allowtokens:
+      - "valid_token"
+      - "token_*"
+      - "use_*_for_wildcard"
+      - "*can*use*multi*asterisk*"
+    # list all valid IPs here, connections from these IPs will always accept
+    # support CIDR notation
+    # can be omit, default: empty
+    allowips:
+      - "127.0.0.1"
+      - "192.168.0.0/16"
+    # milliseconds before close unauth connection, 0 for close immediately
+    # can be omit, default: 0
+    dropdelaytime: 1000
+    # seconds before an auth of client(via token) was expired
+    # connected connections will not be closed because of auth expired
+    # but client must re-auth before creating new connection
+    # can be omit, default: 3600
+    authexpiredtime: 30
+
+# these tokens can be used to auth client connect to any ports in forwardconfigs
+globalallowtokens:
+  - "global_token"
+  - "admin*"
+
+# these IPs can connect to any port without auth
+globalallowips:
+  - "10.0.0.0/8"
+
+# these IPs cannot connect to any port even if it has a valid token or listing in globalallowips and allowips
+globaldenyips:
+  - "1.0.0.0/8"

@@ -1,12 +1,11 @@
 package main
 
 import (
+	log "github.com/sirupsen/logrus"
+	_log "log"
 	"os"
 	"path"
 	"path/filepath"
-
-	log "github.com/sirupsen/logrus"
-	_log "log"
 
 	"connauth/utils/service"
 	"github.com/davecgh/go-spew/spew"
@@ -35,7 +34,18 @@ func Main(exit <-chan struct{}) {
 	log.Info("Log level:", log.GetLevel())
 
 	go func() {
-		//     dump(globalConfig)
+		initClientList()
+		if err := waitForAuth(globalConfig.AuthAddr); err != nil {
+			log.Error(err)
+		} else {
+			log.Infof("waiting for auth by UDP, address %s", globalConfig.AuthAddr)
+		}
+		for i := range globalConfig.ForwardConfigs {
+			cfg := &globalConfig.ForwardConfigs[i]
+			if err := startForward(cfg); err != nil {
+				log.Errorf("start forward %d failed: %v", i+1, err)
+			}
+		}
 	}()
 
 	// waiting for the exit signal
