@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	log "github.com/sirupsen/logrus"
 	_log "log"
 	"os"
@@ -45,8 +46,13 @@ func Main(exit <-chan struct{}) {
 
 func main() {
 	var err error
-	if globalConfig, err = readConfig(
-		path.Join(getCurrentPath(), DefaultConfigFile)); err != nil {
+	var configFile string
+	flag.StringVar(&configFile, "c", DefaultConfigFile, "path of config file")
+	flag.Parse()
+	if configFile == "" {
+		configFile = path.Join(getCurrentPath(), DefaultConfigFile)
+	}
+	if globalConfig, err = readConfig(configFile); err != nil {
 		_log.Fatalln("Read config fail:", err)
 	}
 	if err := initLogger(globalConfig); err != nil {
