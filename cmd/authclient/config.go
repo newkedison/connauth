@@ -20,12 +20,16 @@ func newUint32(x uint32) *uint32 {
 
 type serverConfig struct {
 	Addr        string
+	Key         string
 	AuthConfigs []authConfig
 }
 
 func (c *serverConfig) CheckValid() error {
 	if c.Addr == "" {
 		return fmt.Errorf("addr cannot be empty")
+	}
+	if c.Key == "" {
+		return fmt.Errorf("key cannot be empty")
 	}
 	if _, err := net.ResolveUDPAddr("udp", c.Addr); err != nil {
 		return fmt.Errorf("cannot resolve addr %s: %v", c.Addr, err)

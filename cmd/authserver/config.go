@@ -74,6 +74,7 @@ type config struct {
 		MaxSize  int
 	}
 	AuthAddr          string // UDP addr for auth by token
+	AuthKey           string // use for encryption
 	ForwardConfigs    []forwardConfig
 	GlobalAllowTokens []string // use asterisk(*) for wildcard
 	GlobalAllowIPs    []string // add to all ForwardConfigs

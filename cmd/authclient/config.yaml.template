@@ -1,3 +1,5 @@
+# rename this file to client_config.yaml to use by default
+
 # available level: trace, debug, info, warn, error, fatal, panic
 loglevel: "debug"
 
@@ -10,6 +12,8 @@ loglevel: "debug"
 servers:
   # UDP port of server for auth
   - addr: "192.168.0.100"
+    # for encryption, use key same as server
+    key: "a safe key"
     # list all auth configs
     authconfigs:
       # token for auth
@@ -20,6 +24,7 @@ servers:
         interval: 30
   # can auth to multiple servers simultaneously
   - addr: "127.0.0.1:33333"
+    key: "another key"
     authconfigs:
     # can auth multiple ports of same server too
     - token: "admin"

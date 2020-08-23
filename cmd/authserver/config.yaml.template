@@ -1,3 +1,5 @@
+# rename this file to server_config.yaml to use by default
+
 # available level: trace, debug, info, warn, error, fatal, panic
 loglevel: "debug"
 
@@ -18,6 +20,8 @@ loglevel: "debug"
 # UDP port for auth, send auth data to this address
 # NOTE: There will be no reply regardless of authed or not
 authaddr: "0.0.0.0:33333"
+# for encryption, cannot be empty
+authkey: "a safe key"
 
 # list all forward configs here
 forwardconfigs:
