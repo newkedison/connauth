@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"connauth/utils"
+)
 
 func TestServerConfigRejectsUnsafeAuthSettings(t *testing.T) {
 	expiry := uint32(60)
@@ -122,4 +126,49 @@ func TestServerConfigValidatesAuthKeys(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServerConfigAllowsTokenRotationWindow(t *testing.T) {
+	expiry := uint32(60)
+	cfg := config{
+		ServerID: "connauth-server",
+		AuthAddr: "127.0.0.1:40100",
+		AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
+		ForwardConfigs: []forwardConfig{{
+			BindPort:        40022,
+			ForwardAddr:     "127.0.0.1:22",
+			AllowTokens: []string{
+				"old-token-abcdefghijklmnopqrstuvwxyz",
+				"new-token-abcdefghijklmnopqrstuvwxyz",
+			},
+			AuthExpiredTime: &expiry,
+		}},
+	}
+	if err := cfg.CheckValid(); err != nil {
+		t.Fatalf("expected token rotation config to be valid: %v", err)
+	}
+	globalConfig = &cfg
+	initClientList()
+	if !authClient(*newAuthRequestForTest("old-token-abcdefghijklmnopqrstuvwxyz", 40022), "192.0.2.10") {
+		t.Fatal("expected old token to auth during rotation window")
+	}
+	if !authClient(*newAuthRequestForTest("new-token-abcdefghijklmnopqrstuvwxyz", 40022), "192.0.2.11") {
+		t.Fatal("expected new token to auth during rotation window")
+	}
+}
+
+func TestServerConfigRejectsWildcardGlobalToken(t *testing.T) {
+	cfg := config{
+		ServerID: "connauth-server",
+		AuthAddr: "127.0.0.1:40100",
+		AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
+		GlobalAllowTokens: []string{"*"},
+	}
+	if err := cfg.CheckValid(); err == nil {
+		t.Fatal("expected wildcard global token to be rejected")
+	}
+}
+
+func newAuthRequestForTest(token string, port uint16) *utils.AuthRequest {
+	return utils.NewAuthRequest(token, port)
 }
