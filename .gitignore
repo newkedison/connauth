@@ -3,3 +3,7 @@
 connauth
 *.exe
 *.yaml
+AGENTS.md
+authclient
+authserver
+docs/superpowers/plans/
