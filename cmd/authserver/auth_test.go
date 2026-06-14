@@ -289,6 +289,94 @@ func TestCapturedChallengeResponseCannotBeReplayed(t *testing.T) {
 	}
 }
 
+func TestAuthorizationStateSeparatesClientIDAndExpiresOnLookup(t *testing.T) {
+	token := "token-abcdefghijklmnopqrstuvwxyz"
+	expiry := uint32(1)
+	globalConfig = &config{
+		ServerID: "connauth-server",
+		AuthAddr: "127.0.0.1:40100",
+		ForwardConfigs: []forwardConfig{{
+			BindPort:        40022,
+			ForwardAddr:     "127.0.0.1:22",
+			AllowTokens:     []string{token},
+			AuthExpiredTime: &expiry,
+		}},
+	}
+	initClientList()
+	if !authorizeClient("192.0.2.10", "workstation", 40022, token) {
+		t.Fatal("expected client to be authorized")
+	}
+	if !isClientAuthed(&globalConfig.ForwardConfigs[0], net.ParseIP("192.0.2.10"), "workstation") {
+		t.Fatal("expected matching client id to be authorized")
+	}
+	if isClientAuthed(&globalConfig.ForwardConfigs[0], net.ParseIP("192.0.2.10"), "other-client") {
+		t.Fatal("different client id must not share authorization")
+	}
+
+	muxClient.Lock()
+	for key, state := range allClientList[&globalConfig.ForwardConfigs[0]] {
+		state.ExpiresAt = time.Now().Add(-time.Second)
+		allClientList[&globalConfig.ForwardConfigs[0]][key] = state
+	}
+	muxClient.Unlock()
+	if isClientAuthed(&globalConfig.ForwardConfigs[0], net.ParseIP("192.0.2.10"), "workstation") {
+		t.Fatal("expired authorization must fail during lookup")
+	}
+}
+
+func TestGlobalDenyOverridesClientAuthorization(t *testing.T) {
+	token := "token-abcdefghijklmnopqrstuvwxyz"
+	expiry := uint32(60)
+	globalConfig = &config{
+		ServerID: "connauth-server",
+		AuthAddr: "127.0.0.1:40100",
+		GlobalDenyIPs: []string{
+			"192.0.2.10",
+		},
+		ForwardConfigs: []forwardConfig{{
+			BindPort:        40022,
+			ForwardAddr:     "127.0.0.1:22",
+			AllowTokens:     []string{token},
+			AuthExpiredTime: &expiry,
+		}},
+	}
+	initClientList()
+	if !authorizeClient("192.0.2.10", "workstation", 40022, token) {
+		t.Fatal("expected token authorization state to be written")
+	}
+	if isClientAuthed(&globalConfig.ForwardConfigs[0], net.ParseIP("192.0.2.10"), "workstation") {
+		t.Fatal("global deny IP must override token authorization")
+	}
+}
+
+func TestAuthorizationStateHasGlobalCapacityLimit(t *testing.T) {
+	token := "token-abcdefghijklmnopqrstuvwxyz"
+	expiry := uint32(60)
+	globalConfig = &config{
+		ServerID: "connauth-server",
+		AuthAddr: "127.0.0.1:40100",
+		ForwardConfigs: []forwardConfig{{
+			BindPort:        40022,
+			ForwardAddr:     "127.0.0.1:22",
+			AllowTokens:     []string{token},
+			AuthExpiredTime: &expiry,
+		}},
+	}
+	initClientList()
+	previousLimit := maxAuthorizedClients
+	maxAuthorizedClients = 1
+	defer func() {
+		maxAuthorizedClients = previousLimit
+	}()
+
+	if !authorizeClient("192.0.2.10", "workstation", 40022, token) {
+		t.Fatal("expected first authorization to fit capacity")
+	}
+	if authorizeClient("192.0.2.11", "workstation", 40022, token) {
+		t.Fatal("expected second authorization to be rejected at capacity")
+	}
+}
+
 func freeUDPAddr(t *testing.T) string {
 	t.Helper()
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
@@ -443,5 +531,9 @@ func readUDPWithTimeout(conn *net.UDPConn, timeout time.Duration) []byte {
 func clearAuthedIPForTest(cfg *forwardConfig, ip string) {
 	muxClient.Lock()
 	defer muxClient.Unlock()
-	delete(allClientList[cfg], ip)
+	for key := range allClientList[cfg] {
+		if key.IP == ip {
+			delete(allClientList[cfg], key)
+		}
+	}
 }

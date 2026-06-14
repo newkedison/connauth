@@ -12,9 +12,19 @@ import (
 	"time"
 )
 
-var allClientList map[*forwardConfig]map[string]time.Time
+type authorizedClientKey struct {
+	IP       string
+	ClientID string
+}
+
+type authorizedClientState struct {
+	ExpiresAt time.Time
+}
+
+var allClientList map[*forwardConfig]map[authorizedClientKey]authorizedClientState
 var muxClient sync.Mutex
 var pendingChallenges = newPendingChallengeStore(10000, 16)
+var maxAuthorizedClients = 10000
 
 func refreshClientList(cfg *forwardConfig) {
 	muxClient.Lock()
@@ -25,8 +35,8 @@ func refreshClientList(cfg *forwardConfig) {
 	}
 	now := time.Now()
 	for k, v := range list {
-		if v.Before(now) {
-			log.Infof("authed client %s to port %d was expired", k, cfg.BindPort)
+		if !v.ExpiresAt.After(now) {
+			log.Infof("authed client %s to port %d was expired", k.IP, cfg.BindPort)
 			delete(list, k)
 		}
 	}
@@ -58,22 +68,62 @@ func isIPMatchRules(ip net.IP, rules []string) bool {
 }
 
 func isIPAuthed(cfg *forwardConfig, ip net.IP) bool {
-	if isIPMatchRules(ip, globalConfig.GlobalDenyIPs) {
+	if isIPDenied(ip) {
 		return false
 	}
+	if isStaticIPAllowed(cfg, ip) {
+		return true
+	}
+	muxClient.Lock()
+	defer muxClient.Unlock()
+	list := allClientList[cfg]
+	now := time.Now()
+	for key, state := range list {
+		if key.IP != ip.String() {
+			continue
+		}
+		if state.ExpiresAt.After(now) {
+			return true
+		}
+		delete(list, key)
+	}
+	return false
+}
+
+func isClientAuthed(cfg *forwardConfig, ip net.IP, clientID string) bool {
+	if isIPDenied(ip) {
+		return false
+	}
+	if isStaticIPAllowed(cfg, ip) {
+		return true
+	}
+	muxClient.Lock()
+	defer muxClient.Unlock()
+	list := allClientList[cfg]
+	key := authorizedClientKey{IP: ip.String(), ClientID: clientID}
+	state, ok := list[key]
+	if !ok {
+		return false
+	}
+	if !state.ExpiresAt.After(time.Now()) {
+		delete(list, key)
+		return false
+	}
+	return true
+}
+
+func isStaticIPAllowed(cfg *forwardConfig, ip net.IP) bool {
 	if isIPMatchRules(ip, globalConfig.GlobalAllowIPs) {
 		return true
 	}
 	if isIPMatchRules(ip, cfg.AllowIPs) {
 		return true
 	}
-	muxClient.Lock()
-	defer muxClient.Unlock()
-	list := allClientList[cfg]
-	if _, ok := list[ip.String()]; ok {
-		return true
-	}
 	return false
+}
+
+func isIPDenied(ip net.IP) bool {
+	return isIPMatchRules(ip, globalConfig.GlobalDenyIPs)
 }
 
 func isTokenMatchRules(token string, rules []string) bool {
@@ -86,21 +136,39 @@ func isTokenMatchRules(token string, rules []string) bool {
 }
 
 func authClient(req utils.AuthRequest, ip string) bool {
+	return authorizeClient(ip, "", req.Port, req.Token)
+}
+
+func authorizeClient(ip string, clientID string, port uint16, token string) bool {
 	for i := range globalConfig.ForwardConfigs {
 		cfg := &globalConfig.ForwardConfigs[i]
-		if cfg.BindPort != req.Port {
+		if cfg.BindPort != port {
 			continue
 		}
-		if isTokenMatchRules(req.Token, globalConfig.GlobalAllowTokens) ||
-			isTokenMatchRules(req.Token, cfg.AllowTokens) {
+		if isTokenMatchRules(token, globalConfig.GlobalAllowTokens) ||
+			isTokenMatchRules(token, cfg.AllowTokens) {
 			muxClient.Lock()
-			allClientList[cfg][ip] =
-				time.Now().Add(time.Second * time.Duration(*cfg.AuthExpiredTime))
+			key := authorizedClientKey{IP: ip, ClientID: clientID}
+			list := allClientList[cfg]
+			cleanupAuthorizedClientList(list, time.Now())
+			if _, exists := list[key]; !exists && maxAuthorizedClients > 0 && len(list) >= maxAuthorizedClients {
+				muxClient.Unlock()
+				return false
+			}
+			list[key] = authorizedClientState{ExpiresAt: time.Now().Add(time.Second * time.Duration(*cfg.AuthExpiredTime))}
 			muxClient.Unlock()
 			return true
 		}
 	}
 	return false
+}
+
+func cleanupAuthorizedClientList(list map[authorizedClientKey]authorizedClientState, now time.Time) {
+	for key, state := range list {
+		if !state.ExpiresAt.After(now) {
+			delete(list, key)
+		}
+	}
 }
 
 func waitForAuth(addr string) error {
@@ -252,8 +320,7 @@ func handleChallengeResponse(peer *net.UDPAddr, env authproto.Envelope, plain []
 		log.Debugf("challenge response from %s ignored: no pending challenge", peer.IP.String())
 		return
 	}
-	req := utils.NewAuthRequest(resp.Token, resp.Port)
-	if authClient(*req, peer.IP.String()) {
+	if authorizeClient(peer.IP.String(), resp.ClientID, resp.Port, resp.Token) {
 		log.Infof("Auth IP %v to port %d", peer.IP, resp.Port)
 	} else {
 		log.Warnf("Auth IP %v failed: port %d", peer.IP, resp.Port)
@@ -263,8 +330,8 @@ func handleChallengeResponse(peer *net.UDPAddr, env authproto.Envelope, plain []
 func initClientList() {
 	muxClient.Lock()
 	defer muxClient.Unlock()
-	allClientList = make(map[*forwardConfig]map[string]time.Time)
+	allClientList = make(map[*forwardConfig]map[authorizedClientKey]authorizedClientState)
 	for i := range globalConfig.ForwardConfigs {
-		allClientList[&globalConfig.ForwardConfigs[i]] = make(map[string]time.Time)
+		allClientList[&globalConfig.ForwardConfigs[i]] = make(map[authorizedClientKey]authorizedClientState)
 	}
 }
