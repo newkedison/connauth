@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"strings"
+	"unicode"
 
 	"gopkg.in/yaml.v2"
 )
@@ -58,6 +60,7 @@ func (c *forwardConfig) SetDefaultValue() {
 }
 
 type config struct {
+	ServerID string
 	LogLevel string
 	Service  struct {
 		ServiceName string
@@ -79,6 +82,76 @@ type config struct {
 	GlobalAllowTokens []string // use asterisk(*) for wildcard
 	GlobalAllowIPs    []string // add to all ForwardConfigs
 	GlobalDenyIPs     []string // black list of IP addresses to connect to any port, support CIDR notation
+}
+
+func validateIdentifier(kind string, value string) error {
+	if value == "" {
+		return fmt.Errorf("%s cannot be empty", kind)
+	}
+	if len(value) > 64 {
+		return fmt.Errorf("%s too long", kind)
+	}
+	for _, r := range value {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' || r == '.' {
+			continue
+		}
+		return fmt.Errorf("%s contains invalid character", kind)
+	}
+	return nil
+}
+
+func isWeakSecret(s string) bool {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if len(s) < 24 {
+		return true
+	}
+	switch s {
+	case "a safe key", "admin", "valid_token", "global_token", "change_me":
+		return true
+	}
+	return strings.Contains(s, "change_me")
+}
+
+func validateSecret(kind string, value string) error {
+	if isWeakSecret(value) {
+		return fmt.Errorf("%s is empty, too short, or uses an unsafe example value", kind)
+	}
+	return nil
+}
+
+func (c *config) CheckValid() error {
+	if err := validateIdentifier("serverid", c.ServerID); err != nil {
+		return err
+	}
+	if _, err := net.ResolveUDPAddr("udp", c.AuthAddr); err != nil {
+		return fmt.Errorf("authaddr is invalid: %v", err)
+	}
+	if err := validateSecret("authkey", c.AuthKey); err != nil {
+		return err
+	}
+	for _, token := range c.GlobalAllowTokens {
+		if token == "*" {
+			return fmt.Errorf("globalallowtokens cannot contain wildcard *")
+		}
+		if err := validateSecret("global allow token", token); err != nil {
+			return err
+		}
+	}
+	for i := range c.ForwardConfigs {
+		if err := c.ForwardConfigs[i].CheckValid(); err != nil {
+			return fmt.Errorf("forwardconfigs %d error: %v", i+1, err)
+		}
+		for _, token := range c.ForwardConfigs[i].AllowTokens {
+			if token == "*" {
+				return fmt.Errorf("forwardconfigs %d allowtokens cannot contain wildcard *", i+1)
+			}
+			if err := validateSecret("allow token", token); err != nil {
+				return fmt.Errorf("forwardconfigs %d error: %v", i+1, err)
+			}
+		}
+		c.ForwardConfigs[i].SetDefaultValue()
+	}
+	return nil
 }
 
 func readConfig(fileName string) (*config, error) {
@@ -108,12 +181,8 @@ func readConfig(fileName string) (*config, error) {
 			c.RedisLogger.MaxSize = 0
 		}
 	}
-	for i := range c.ForwardConfigs {
-		if err := c.ForwardConfigs[i].CheckValid(); err != nil {
-			return nil, fmt.Errorf("forwardconfigs %d error: %v", i+1, err)
-		} else {
-			c.ForwardConfigs[i].SetDefaultValue()
-		}
+	if err := c.CheckValid(); err != nil {
+		return nil, err
 	}
 
 	return c, nil

@@ -1,7 +1,9 @@
 # rename this file to client_config.yaml to use by default
 
 # available level: trace, debug, info, warn, error, fatal, panic
-loglevel: "debug"
+clientid: "workstation"
+
+loglevel: "info"
 
 # if want to run as service on windows, uncomment below
 # service:
@@ -11,24 +13,15 @@ loglevel: "debug"
 
 servers:
   # UDP port of server for auth
-  - addr: "192.168.0.100"
+  - addr: "127.0.0.1:40100"
     # for encryption, use key same as server
-    key: "a safe key"
+    key: "CHANGE_ME_RANDOM_32_BYTES_BASE64"
     # list all auth configs
     authconfigs:
       # token for auth
-      - token: "admin"
+      - token: "CHANGE_ME_RANDOM_TOKEN"
         # which port want to connect
-        port: 10000
+        port: 40022
         # re-auth interval by second, not less then 10, default: 60
         interval: 30
   # can auth to multiple servers simultaneously
-  - addr: "127.0.0.1:33333"
-    key: "another key"
-    authconfigs:
-    # can auth multiple ports of same server too
-    - token: "admin"
-      port: 33333
-      interval: 600
-    - token: "admin"
-      port: 44444
