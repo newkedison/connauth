@@ -95,15 +95,18 @@ func TestStartAuthOfServerDoesNotLogToken(t *testing.T) {
 	token := "super-secret-token"
 	interval := uint32(60)
 	stop := make(chan struct{})
-	startAuthOfServer(&serverConfig{
-		Addr: "127.0.0.1:1",
-		Key:  "test-key",
+	done := startAuthOfServer(&serverConfig{
+		Addr:     "127.0.0.1:1",
+		ServerID: "connauth-server",
+		KeyID:    "primary-2026-06",
+		Key:      "test-key",
 		AuthConfigs: []authConfig{
 			{Token: token, Port: 2222, Interval: &interval},
 		},
 	}, stop)
 	time.Sleep(50 * time.Millisecond)
 	close(stop)
+	<-done
 
 	if strings.Contains(buf.String(), token) {
 		t.Fatalf("log output contains token: %s", buf.String())

@@ -30,9 +30,10 @@ func Main(exit <-chan struct{}) {
 	log.Debug("Platform:", service.Platform())
 	log.Info("Log level:", log.GetLevel())
 
+	stop := make(chan struct{})
 	go func() {
 		initClientList()
-		if err := waitForAuth(globalConfig.AuthAddr); err != nil {
+		if _, err := waitForAuth(globalConfig.AuthAddr, stop); err != nil {
 			log.Error(err)
 		} else {
 			log.Infof("waiting for auth by UDP, address %s", globalConfig.AuthAddr)
@@ -47,6 +48,7 @@ func Main(exit <-chan struct{}) {
 
 	// waiting for the exit signal
 	<-exit
+	close(stop)
 }
 
 func main() {

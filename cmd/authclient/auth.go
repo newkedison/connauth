@@ -7,6 +7,7 @@ import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -125,9 +126,13 @@ func openChallenge(server *serverConfig, packet []byte) (authproto.Challenge, er
 	return challenge, nil
 }
 
-func startAuthOfServer(server *serverConfig, stop <-chan struct{}) {
+func startAuthOfServer(server *serverConfig, stop <-chan struct{}) <-chan struct{} {
+	done := make(chan struct{})
+	var wg sync.WaitGroup
 	for i := range server.AuthConfigs {
+		wg.Add(1)
 		go func(cfg authConfig) {
+			defer wg.Done()
 			log.Infof("start auth to port %d, re-auth interval %d seconds",
 				cfg.Port, *cfg.Interval)
 			request := utils.NewAuthRequest(cfg.Token, cfg.Port)
@@ -164,6 +169,11 @@ func startAuthOfServer(server *serverConfig, stop <-chan struct{}) {
 			log.Debug("ticker stopped")
 		}(server.AuthConfigs[i])
 	}
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	return done
 }
 
 func startAllAuth(stop <-chan struct{}) {

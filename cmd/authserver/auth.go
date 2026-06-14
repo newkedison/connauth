@@ -171,20 +171,34 @@ func cleanupAuthorizedClientList(list map[authorizedClientKey]authorizedClientSt
 	}
 }
 
-func waitForAuth(addr string) error {
+func waitForAuth(addr string, stop <-chan struct{}) (<-chan struct{}, error) {
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
-		return fmt.Errorf("resolve authaddr %s failed: %v", addr, err)
+		return nil, fmt.Errorf("resolve authaddr %s failed: %v", addr, err)
 	}
 	authWaiter, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
-		return fmt.Errorf("bind to authaddr %s failed: %v", addr, err)
+		return nil, fmt.Errorf("bind to authaddr %s failed: %v", addr, err)
 	}
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(3)
 	go func() {
+		defer wg.Done()
+		<-stop
+		_ = authWaiter.Close()
+	}()
+	go func() {
+		defer wg.Done()
 		for {
 			buf := make([]byte, 4096)
 			n, peer, err := authWaiter.ReadFromUDP(buf)
 			if err != nil {
+				select {
+				case <-stop:
+					return
+				default:
+				}
 				log.Warnf("read from auth addr %s failed: %v", addr, err)
 				continue
 			}
@@ -195,13 +209,24 @@ func waitForAuth(addr string) error {
 		}
 	}()
 	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(time.Second * 60)
+		defer ticker.Stop()
 		for {
 			deleted := pendingChallenges.cleanup(time.Now())
 			log.Debugf("pending challenge count delete: %d", deleted)
-			time.Sleep(time.Second * 60)
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+			}
 		}
 	}()
-	return nil
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	return done, nil
 }
 
 func handleAuthPacket(conn *net.UDPConn, peer *net.UDPAddr, packet []byte) {

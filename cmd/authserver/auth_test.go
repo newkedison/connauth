@@ -42,14 +42,13 @@ func TestAuthClientDoesNotLogToken(t *testing.T) {
 		},
 	}
 	initClientList()
-	if err := waitForAuth(authAddr); err != nil {
-		t.Fatalf("waitForAuth failed: %v", err)
-	}
+	stopAuth := startAuthForTest(t, authAddr)
 	time.Sleep(20 * time.Millisecond)
 	if err := sendChallengeAuthForTest(authAddr, "primary-2026-06", authKey, "connauth-server", "workstation", token, 2222); err != nil {
 		t.Fatalf("send auth request failed: %v", err)
 	}
 	time.Sleep(50 * time.Millisecond)
+	stopAuth()
 
 	if strings.Contains(buf.String(), token) {
 		t.Fatalf("log output contains token: %s", buf.String())
@@ -73,9 +72,8 @@ func TestChallengeRequestRespondsAndResponseSilentlyAuthorizes(t *testing.T) {
 		}},
 	}
 	initClientList()
-	if err := waitForAuth(authAddr); err != nil {
-		t.Fatalf("waitForAuth failed: %v", err)
-	}
+	stopAuth := startAuthForTest(t, authAddr)
+	defer stopAuth()
 	conn := dialUDPForTest(t, authAddr)
 	defer conn.Close()
 
@@ -102,9 +100,8 @@ func TestChallengeRequestWithWrongKeyIsSilent(t *testing.T) {
 		AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
 	}
 	initClientList()
-	if err := waitForAuth(authAddr); err != nil {
-		t.Fatalf("waitForAuth failed: %v", err)
-	}
+	stopAuth := startAuthForTest(t, authAddr)
+	defer stopAuth()
 	conn := dialUDPForTest(t, authAddr)
 	defer conn.Close()
 
@@ -149,9 +146,8 @@ func TestChallengeRequestWithExpiredRuntimeKeyIsSilent(t *testing.T) {
 		}},
 	}
 	initClientList()
-	if err := waitForAuth(authAddr); err != nil {
-		t.Fatalf("waitForAuth failed: %v", err)
-	}
+	stopAuth := startAuthForTest(t, authAddr)
+	defer stopAuth()
 	conn := dialUDPForTest(t, authAddr)
 	defer conn.Close()
 
@@ -200,9 +196,8 @@ func TestChallengeResponseWithWrongTokenIsSilentAndDoesNotAuthorize(t *testing.T
 		}},
 	}
 	initClientList()
-	if err := waitForAuth(authAddr); err != nil {
-		t.Fatalf("waitForAuth failed: %v", err)
-	}
+	stopAuth := startAuthForTest(t, authAddr)
+	defer stopAuth()
 	conn := dialUDPForTest(t, authAddr)
 	defer conn.Close()
 
@@ -233,9 +228,8 @@ func TestChallengeRequestForUnknownPortStillReturnsChallenge(t *testing.T) {
 		}},
 	}
 	initClientList()
-	if err := waitForAuth(authAddr); err != nil {
-		t.Fatalf("waitForAuth failed: %v", err)
-	}
+	stopAuth := startAuthForTest(t, authAddr)
+	defer stopAuth()
 	conn := dialUDPForTest(t, authAddr)
 	defer conn.Close()
 
@@ -262,9 +256,8 @@ func TestCapturedChallengeResponseCannotBeReplayed(t *testing.T) {
 		}},
 	}
 	initClientList()
-	if err := waitForAuth(authAddr); err != nil {
-		t.Fatalf("waitForAuth failed: %v", err)
-	}
+	stopAuth := startAuthForTest(t, authAddr)
+	defer stopAuth()
 	conn := dialUDPForTest(t, authAddr)
 	defer conn.Close()
 
@@ -388,6 +381,19 @@ func freeUDPAddr(t *testing.T) string {
 		t.Fatalf("close udp: %v", err)
 	}
 	return addr
+}
+
+func startAuthForTest(t *testing.T, addr string) func() {
+	t.Helper()
+	stop := make(chan struct{})
+	done, err := waitForAuth(addr, stop)
+	if err != nil {
+		t.Fatalf("waitForAuth failed: %v", err)
+	}
+	return func() {
+		close(stop)
+		<-done
+	}
 }
 
 func dialUDPForTest(t *testing.T, addr string) *net.UDPConn {
