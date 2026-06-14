@@ -2,9 +2,7 @@ package main
 
 import (
 	"connauth/utils"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/sha256"
+	"connauth/utils/authproto"
 	"encoding/json"
 	"fmt"
 	"github.com/ryanuber/go-glob"
@@ -15,8 +13,8 @@ import (
 )
 
 var allClientList map[*forwardConfig]map[string]time.Time
-var allNonce sync.Map
 var muxClient sync.Mutex
+var pendingChallenges = newPendingChallengeStore(10000, 16)
 
 func refreshClientList(cfg *forwardConfig) {
 	muxClient.Lock()
@@ -32,21 +30,6 @@ func refreshClientList(cfg *forwardConfig) {
 			delete(list, k)
 		}
 	}
-}
-
-func deleteOldNonce() {
-	deleteCount := 0
-	now := time.Now().Unix()
-	allNonce.Range(func(key, value interface{}) bool {
-		v := value.(int64)
-		// delete nonce received one hour ago
-		if v < now && (now-v) > 60 {
-			allNonce.Delete(key)
-			deleteCount++
-		}
-		return true
-	})
-	log.Debugf("nonce count delete: %d", deleteCount)
 }
 
 func isIPMatchRule(ip net.IP, rule string) bool {
@@ -120,31 +103,6 @@ func authClient(req utils.AuthRequest, ip string) bool {
 	return false
 }
 
-func decrypt(buf []byte, key []byte) ([]byte, error) {
-	if len(buf) == 0 || len(key) == 0 {
-		return nil, fmt.Errorf("decrypt fail: %d %d", len(buf), len(key))
-	}
-	var cipherKey [32]byte
-	cipherKey = sha256.Sum256(key)
-	c, err := aes.NewCipher(cipherKey[:])
-	if err != nil {
-		return nil, fmt.Errorf("create cipher fail: %v", err)
-	}
-	gcm, err := cipher.NewGCM(c)
-	if err != nil {
-		return nil, fmt.Errorf("make GCM fail: %v", err)
-	}
-	if len(buf) < gcm.NonceSize() {
-		return nil, fmt.Errorf("ciphertext invalid")
-	}
-	nonce, text := buf[:gcm.NonceSize()], buf[gcm.NonceSize():]
-	plain, err := gcm.Open(nil, nonce, text, []byte(utils.AdditionalData))
-	if err != nil {
-		return nil, fmt.Errorf("gcm.Open fail: %v", err)
-	}
-	return plain, nil
-}
-
 func waitForAuth(addr string) error {
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -165,43 +123,141 @@ func waitForAuth(addr string) error {
 			if n == 0 {
 				continue
 			}
-			if buf, err = decrypt(buf[:n], []byte(globalConfig.activeAuthKey())); err != nil {
-				log.Infof("decrypt data from %s failed: %v", peer.String(), err)
-				continue
-			}
-			var request utils.AuthRequest
-			if err := json.Unmarshal(buf, &request); err != nil {
-				log.Warnf("unmarshal request failed: %v", err)
-				continue
-			}
-			if !request.IsValid() {
-				log.Warnf("request invalid")
-				continue
-			}
-			now := time.Now().Unix()
-			if request.Timestamp < now-300 || request.Timestamp > now+60 {
-				log.Warnf("timestamp of client was error: %d %d", request.Timestamp, now)
-				continue
-			}
-			if _, ok := allNonce.Load(request.Nonce); ok {
-				log.Errorf("[ATTACK]duplicate nonce from %s", peer.String())
-				continue
-			}
-			allNonce.Store(request.Nonce, now)
-			if authClient(request, peer.IP.String()) {
-				log.Infof("Auth IP %v to port %d", peer.IP, request.Port)
-			} else {
-				log.Warnf("Auth IP %v failed: port %d", peer.IP, request.Port)
-			}
+			handleAuthPacket(authWaiter, peer, buf[:n])
 		}
 	}()
 	go func() {
 		for {
-			deleteOldNonce()
+			deleted := pendingChallenges.cleanup(time.Now())
+			log.Debugf("pending challenge count delete: %d", deleted)
 			time.Sleep(time.Second * 60)
 		}
 	}()
 	return nil
+}
+
+func handleAuthPacket(conn *net.UDPConn, peer *net.UDPAddr, packet []byte) {
+	var env authproto.Envelope
+	if err := json.Unmarshal(packet, &env); err != nil {
+		log.Debugf("auth packet from %s ignored: invalid envelope", peer.IP.String())
+		return
+	}
+	if err := env.Validate(); err != nil {
+		log.Debugf("auth packet from %s ignored: invalid envelope", peer.IP.String())
+		return
+	}
+	if env.ServerID != globalConfig.ServerID {
+		log.Debugf("auth packet from %s ignored: server mismatch", peer.IP.String())
+		return
+	}
+	key, ok := globalConfig.authKeyByID(env.KeyID)
+	if !ok {
+		log.Debugf("auth packet from %s ignored: unknown key id", peer.IP.String())
+		return
+	}
+	plain, err := authproto.Open([]byte(key), authproto.Context{KeyID: env.KeyID, ServerID: env.ServerID}, env.Payload)
+	if err != nil {
+		log.Debugf("auth packet from %s ignored: decrypt failed", peer.IP.String())
+		return
+	}
+	var header struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(plain, &header); err != nil {
+		log.Debugf("auth packet from %s ignored: invalid payload", peer.IP.String())
+		return
+	}
+	switch header.Type {
+	case authproto.MessageTypeChallengeRequest:
+		handleChallengeRequest(conn, peer, env, key, plain)
+	case authproto.MessageTypeChallengeResponse:
+		handleChallengeResponse(peer, env, plain)
+	default:
+		log.Debugf("auth packet from %s ignored: unknown message type", peer.IP.String())
+	}
+}
+
+func handleChallengeRequest(conn *net.UDPConn, peer *net.UDPAddr, env authproto.Envelope, key string, plain []byte) {
+	var req authproto.ChallengeRequest
+	if err := json.Unmarshal(plain, &req); err != nil || req.Validate(time.Now()) != nil {
+		log.Debugf("challenge request from %s ignored: invalid request", peer.IP.String())
+		return
+	}
+	if req.ServerID != globalConfig.ServerID {
+		log.Debugf("challenge request from %s ignored: server mismatch", peer.IP.String())
+		return
+	}
+	serverNonce, err := authproto.RandomNonceString()
+	if err != nil {
+		log.Warnf("challenge request from %s ignored: nonce generation failed", peer.IP.String())
+		return
+	}
+	expiresAt := time.Now().Add(authproto.ChallengeTTL)
+	pendingKey := pendingChallengeKey{
+		IP:          peer.IP.String(),
+		KeyID:       env.KeyID,
+		ServerID:    req.ServerID,
+		ClientID:    req.ClientID,
+		Port:        req.Port,
+		ClientNonce: req.ClientNonce,
+		ServerNonce: serverNonce,
+	}
+	if !pendingChallenges.add(pendingKey, expiresAt) {
+		log.Debugf("challenge request from %s ignored: pending limit reached", peer.IP.String())
+		return
+	}
+	challenge := authproto.Challenge{
+		Type:        authproto.MessageTypeChallenge,
+		ServerID:    req.ServerID,
+		ClientID:    req.ClientID,
+		Port:        req.Port,
+		ClientNonce: req.ClientNonce,
+		ServerNonce: serverNonce,
+		ExpiresAt:   expiresAt.Unix(),
+	}
+	body, err := json.Marshal(challenge)
+	if err != nil {
+		log.Warnf("challenge request from %s ignored: marshal failed", peer.IP.String())
+		return
+	}
+	sealed, err := authproto.Seal([]byte(key), authproto.Context{KeyID: env.KeyID, ServerID: env.ServerID}, body)
+	if err != nil {
+		log.Warnf("challenge request from %s ignored: seal failed", peer.IP.String())
+		return
+	}
+	resp, err := json.Marshal(authproto.Envelope{KeyID: env.KeyID, ServerID: env.ServerID, Payload: sealed})
+	if err != nil {
+		log.Warnf("challenge request from %s ignored: envelope failed", peer.IP.String())
+		return
+	}
+	_, _ = conn.WriteToUDP(resp, peer)
+}
+
+func handleChallengeResponse(peer *net.UDPAddr, env authproto.Envelope, plain []byte) {
+	var resp authproto.ChallengeResponse
+	if err := json.Unmarshal(plain, &resp); err != nil || resp.Validate(time.Now()) != nil {
+		log.Debugf("challenge response from %s ignored: invalid response", peer.IP.String())
+		return
+	}
+	key := pendingChallengeKey{
+		IP:          peer.IP.String(),
+		KeyID:       env.KeyID,
+		ServerID:    resp.ServerID,
+		ClientID:    resp.ClientID,
+		Port:        resp.Port,
+		ClientNonce: resp.ClientNonce,
+		ServerNonce: resp.ServerNonce,
+	}
+	if !pendingChallenges.consume(key, time.Now()) {
+		log.Debugf("challenge response from %s ignored: no pending challenge", peer.IP.String())
+		return
+	}
+	req := utils.NewAuthRequest(resp.Token, resp.Port)
+	if authClient(*req, peer.IP.String()) {
+		log.Infof("Auth IP %v to port %d", peer.IP, resp.Port)
+	} else {
+		log.Warnf("Auth IP %v failed: port %d", peer.IP, resp.Port)
+	}
 }
 
 func initClientList() {

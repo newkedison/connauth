@@ -208,6 +208,29 @@ func (c *config) activeAuthKey() string {
 	return c.AuthKeys[0].Key
 }
 
+func (c *config) authKeyByID(keyID string) (string, bool) {
+	now := time.Now()
+	for _, key := range c.AuthKeys {
+		if key.ID != keyID {
+			continue
+		}
+		if key.NotBefore != "" {
+			t, err := time.Parse(time.RFC3339, key.NotBefore)
+			if err != nil || now.Before(t) {
+				return "", false
+			}
+		}
+		if key.NotAfter != "" {
+			t, err := time.Parse(time.RFC3339, key.NotAfter)
+			if err != nil || !now.Before(t) {
+				return "", false
+			}
+		}
+		return key.Key, true
+	}
+	return "", false
+}
+
 func readConfig(fileName string) (*config, error) {
 	content, err := ioutil.ReadFile(fileName)
 	if err != nil {
