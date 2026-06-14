@@ -9,11 +9,7 @@ import (
 	"path/filepath"
 
 	"connauth/utils/service"
-	"github.com/davecgh/go-spew/spew"
 )
-
-//noinspection GoUnusedGlobalVariable
-var dump = spew.Dump
 
 func getCurrentPath() string {
 	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
@@ -47,13 +43,19 @@ func Main(exit <-chan struct{}) {
 func main() {
 	var err error
 	var configFile string
+	var checkConfig bool
 	flag.StringVar(&configFile, "c", DefaultConfigFile, "path of config file")
+	flag.BoolVar(&checkConfig, "check-config", false, "validate config and exit")
 	flag.Parse()
 	if configFile == "" {
 		configFile = path.Join(getCurrentPath(), DefaultConfigFile)
 	}
 	if globalConfig, err = readConfig(configFile); err != nil {
 		_log.Fatalln("Read config fail:", err)
+	}
+	if checkConfig {
+		_log.Println("Config OK")
+		return
 	}
 	if err := initLogger(globalConfig); err != nil {
 		_log.Fatalln("Config logger fail:", err)
