@@ -19,6 +19,16 @@ loglevel: "info"
 #   password: ""
 #   key: "authserver/log"
 
+logger:
+  aliyunsls:
+    enabled: false
+    endpoint: ""
+    projectname: ""
+    logstorename: ""
+    topic: ""
+    accesskeyid: ""
+    accesskeysecret: ""
+
 # UDP port for auth, send auth data to this address
 # NOTE: There will be no reply regardless of authed or not
 authaddr: "0.0.0.0:40100"

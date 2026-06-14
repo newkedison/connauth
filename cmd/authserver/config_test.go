@@ -1,6 +1,8 @@
 package main
 
 import (
+	"io/ioutil"
+	"path/filepath"
 	"testing"
 
 	"connauth/utils"
@@ -135,8 +137,8 @@ func TestServerConfigAllowsTokenRotationWindow(t *testing.T) {
 		AuthAddr: "127.0.0.1:40100",
 		AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
 		ForwardConfigs: []forwardConfig{{
-			BindPort:        40022,
-			ForwardAddr:     "127.0.0.1:22",
+			BindPort:    40022,
+			ForwardAddr: "127.0.0.1:22",
 			AllowTokens: []string{
 				"old-token-abcdefghijklmnopqrstuvwxyz",
 				"new-token-abcdefghijklmnopqrstuvwxyz",
@@ -159,13 +161,39 @@ func TestServerConfigAllowsTokenRotationWindow(t *testing.T) {
 
 func TestServerConfigRejectsWildcardGlobalToken(t *testing.T) {
 	cfg := config{
-		ServerID: "connauth-server",
-		AuthAddr: "127.0.0.1:40100",
-		AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
+		ServerID:          "connauth-server",
+		AuthAddr:          "127.0.0.1:40100",
+		AuthKeys:          []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
 		GlobalAllowTokens: []string{"*"},
 	}
 	if err := cfg.CheckValid(); err == nil {
 		t.Fatal("expected wildcard global token to be rejected")
+	}
+}
+
+func TestServerConfigRejectsIncompleteEnabledSLS(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "server.yaml")
+	content := []byte(`
+serverid: "connauth-server"
+authaddr: "127.0.0.1:40100"
+authkeys:
+  - id: "primary-2026-06"
+    key: "abcdefghijklmnopqrstuvwxyz123456"
+forwardconfigs:
+  - bindport: 40022
+    forwardaddr: "127.0.0.1:22"
+    allowtokens:
+      - "token-abcdefghijklmnopqrstuvwxyz"
+logger:
+  aliyunsls:
+    enabled: true
+`)
+	if err := ioutil.WriteFile(cfgFile, content, 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if _, err := readConfig(cfgFile); err == nil {
+		t.Fatal("expected incomplete enabled SLS config to fail")
 	}
 }
 

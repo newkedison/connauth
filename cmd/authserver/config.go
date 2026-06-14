@@ -96,6 +96,17 @@ type config struct {
 		DB       int
 		MaxSize  int
 	}
+	Logger struct {
+		AliyunSLS struct {
+			Enabled         bool
+			Endpoint        string
+			ProjectName     string
+			LogStoreName    string
+			Topic           string
+			AccessKeyID     string
+			AccessKeySecret string
+		}
+	}
 	AuthAddr          string // UDP addr for auth by token
 	AuthKeys          []authKeyConfig
 	ForwardConfigs    []forwardConfig
@@ -275,6 +286,13 @@ func readConfig(fileName string) (*config, error) {
 		}
 		if c.RedisLogger.MaxSize < 0 {
 			c.RedisLogger.MaxSize = 0
+		}
+	}
+	if c.Logger.AliyunSLS.Enabled {
+		if c.Logger.AliyunSLS.Endpoint == "" ||
+			c.Logger.AliyunSLS.ProjectName == "" ||
+			c.Logger.AliyunSLS.LogStoreName == "" {
+			return nil, fmt.Errorf("aliyun sls endpoint, projectname, and logstorename are required")
 		}
 	}
 	if err := c.CheckValid(); err != nil {

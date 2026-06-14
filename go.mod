@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	github.com/go-redis/redis/v7 v7.0.0-beta.4
+	github.com/golang/protobuf v1.2.0
 	github.com/kardianos/service v1.0.0
 	github.com/ryanuber/go-glob v1.0.0
 	github.com/sirupsen/logrus v1.4.2
