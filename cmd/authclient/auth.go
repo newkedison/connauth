@@ -67,12 +67,11 @@ func auth(server *serverConfig, req *utils.AuthRequest) error {
 func startAuthOfServer(server *serverConfig, stop <-chan struct{}) {
 	for i := range server.AuthConfigs {
 		go func(cfg authConfig) {
-			log.Infof("start auth to port %d with token %s, re-auth interval %d seconds",
-				cfg.Port, cfg.Token, *cfg.Interval)
+			log.Infof("start auth to port %d, re-auth interval %d seconds",
+				cfg.Port, *cfg.Interval)
 			request := utils.NewAuthRequest(cfg.Token, cfg.Port)
 			if !request.IsValid() {
-				log.Warnf("request invalid, stop auth for port %d with token %s",
-					cfg.Port, cfg.Token)
+				log.Warnf("request invalid, stop auth for port %d", cfg.Port)
 				return
 			}
 			ticker := time.NewTicker(time.Duration(*cfg.Interval) * time.Second)
@@ -85,12 +84,12 @@ func startAuthOfServer(server *serverConfig, stop <-chan struct{}) {
 					log.Infof("auth failed: %v", err)
 					failCount++
 					if failCount >= nextAlarmCount {
-						log.Warnf("[%4d]auth to port %d with token %s failed: %v",
-							failCount, cfg.Port, cfg.Token, err)
+						log.Warnf("[%4d]auth to port %d failed: %v",
+							failCount, cfg.Port, err)
 						nextAlarmCount = nextAlarmCount * 10
 					}
 				} else {
-					log.Debugf("auth port %d with token %s success", cfg.Port, cfg.Token)
+					log.Debugf("auth port %d success", cfg.Port)
 					failCount = 0
 					nextAlarmCount = 1
 				}

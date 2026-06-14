@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/ryanuber/go-glob"
 	log "github.com/sirupsen/logrus"
 	"net"
@@ -47,7 +46,7 @@ func deleteOldNonce() {
 		}
 		return true
 	})
-	log.Errorf("nonce count delete: %d", deleteCount)
+	log.Debugf("nonce count delete: %d", deleteCount)
 }
 
 func isIPMatchRule(ip net.IP, rule string) bool {
@@ -168,9 +167,6 @@ func waitForAuth(addr string) error {
 			}
 			if buf, err = decrypt(buf[:n], []byte(globalConfig.AuthKey)); err != nil {
 				log.Infof("decrypt data from %s failed: %v", peer.String(), err)
-				if len(buf) >= n {
-					log.Debug(spew.Sdump(buf[:n]))
-				}
 				continue
 			}
 			var request utils.AuthRequest
@@ -193,11 +189,9 @@ func waitForAuth(addr string) error {
 			}
 			allNonce.Store(request.Nonce, now)
 			if authClient(request, peer.IP.String()) {
-				log.Infof("Auth IP %v to port %d with token %s",
-					peer.IP, request.Port, request.Token)
+				log.Infof("Auth IP %v to port %d", peer.IP, request.Port)
 			} else {
-				log.Warnf("Auth IP %v failed: port %d token %s",
-					peer.IP, request.Port, request.Token)
+				log.Warnf("Auth IP %v failed: port %d", peer.IP, request.Port)
 			}
 		}
 	}()
