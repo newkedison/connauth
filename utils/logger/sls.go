@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -160,9 +161,8 @@ func (h *SLSHook) putLogs(body []byte, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	host := strings.TrimPrefix(strings.TrimPrefix(endpoint, "https://"), "http://")
-	if !strings.HasPrefix(host, h.cfg.ProjectName+".") && !strings.HasPrefix(endpoint, "http://127.0.0.1:") && !strings.HasPrefix(endpoint, "http://localhost:") {
-		host = h.cfg.ProjectName + "." + host
+	if shouldPrefixProjectHost(req.URL.Hostname()) {
+		host := h.cfg.ProjectName + "." + req.URL.Host
 		req.URL.Host = host
 		req.Host = host
 	}
@@ -182,9 +182,14 @@ func (h *SLSHook) putLogs(body []byte, now time.Time) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("aliyun sls put logs failed: %s", resp.Status)
+		body, _ := ioutil.ReadAll(resp.Body)
+		return fmt.Errorf("aliyun sls put logs failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 	return nil
+}
+
+func shouldPrefixProjectHost(hostname string) bool {
+	return hostname != "127.0.0.1" && hostname != "localhost"
 }
 
 func (h *SLSHook) signature(method string, contentMD5 string, contentType string, date string, bodySize string, resource string) string {
