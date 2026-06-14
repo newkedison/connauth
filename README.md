@@ -1,91 +1,61 @@
-Authenticate incoming connections and forward to another destination
+# connauth
 
-### Why?
+connauth authenticates a client over UDP before allowing TCP forwarding to a
+backend service such as SSH. It is an extra network gate, not a replacement for
+SSH public-key authentication, VPN, host firewall rules, or backend service
+authentication.
 
-To make our backend services(like SSH) more secrecy,
-besides using the tools supply by services themself(like public key authentication of SSH),
-we usually put a firewall(iptables, ufw, etc.) in front of our services, only allowed IPs can connect to our services,
-this make them more safely even if some CVEs was found but not fixed yet.
+## Security Model
 
-One of disadvantages of firewall was hard to update rules. So here comes [port knocking](https://en.wikipedia.org/wiki/Port_knocking).
-It can update rules of iptables automatically if you connect to some ports in a special order.
+The client and server use a two-step challenge-response protocol. The client
+sends an encrypted challenge request without a token. The server replies only
+when the key is valid, then the client sends an encrypted challenge response
+containing the token and both nonces. The final response is always silent:
+correct and incorrect tokens both produce no UDP reply.
 
-There were new disadvantages of port knocking, like:
-* it needs to run as root for changing configs of iptables
-* it can be sniff by others
-* most implementations of port knocking allow port to be access(maybe a short time) from all sources
+Messages are bound to `server_id`, `client_id`, `key_id`, target port, and
+nonces. Captured packets cannot be replayed, and a challenge can only be used
+from the source IP that requested it. Server and client clocks must be
+synchronized; enable NTP on both sides.
 
-Inspired by [giuliocomi/knockandgo](https://github.com/giuliocomi/knockandgo), I wrote this tool
-for connections authentication and forward.
+Authorization is still source-IP based. Devices behind the same NAT or shared
+public IP may share access during the authorization window. Deny lists override
+allow lists and token authorization.
 
-### Features
+## Build And Test
 
-* no need to run as root/administrator
-* support authenticating connections by IP or token(see
- [server config file](https://github.com/newkedison/connauth/blob/master/cmd/authserver/config.yaml.template) for more detail)
-    * port-special IP whitelist for allowing IPs access this port
-    * global IP whitelist/blacklist for allowing/denying IPs access all ports
-    * other IPs need to auth by token, there were also port-special token and global token
-* can set timeout for an authentication, clients need to re-auth again before create new connection when auth expired
-* use encryption for keeping away of sniff and [replay attack](https://en.wikipedia.org/wiki/Replay_attack)
-* cross platform, can run as service on windows(thanks to [kardianos/service](https://github.com/kardianos/service))
+```bash
+GOPROXY=https://goproxy.io go test ./...
+GOPROXY=https://goproxy.io go build ./cmd/authserver
+GOPROXY=https://goproxy.io go build ./cmd/authclient
+```
 
-##### difference of [giuliocomi/knockandgo](https://github.com/giuliocomi/knockandgo)
-* use a fixed port instead of random port, so the client not need to change port everytime
-* not use PEM certificate for simply
-* designed to run as service/daemon instead of one-time use
+Validate config without opening listeners:
 
-### Usage
+```bash
+./authserver -c server_config.yaml --check-config
+./authclient -c client_config.yaml --check-config
+```
 
-##### build
-build cmd/authserver and cmd/authclient by go, or just download the latest release binary file of your platform.
+## Configuration
 
-##### server side
-1. copy authserver(or authserver.exe on windows) to your server
-2. copy cmd/authserver/config.yaml.template to the same directory of authserver on your server,
-rename it to server_config.yaml
-3. modify the content of server_config.yaml to fit your need, it was easy, the comments and example will help you
-4. run ./authserver on your server
-##### client side
-1. copy authclient(or authclient.exe on windows) to your client
-2. copy cmd/authclient/config.yaml.template to the same directory of authclient on your client,
-rename it to client_config.yaml
-3. modify the content of client_config.yaml to fit your need
-4. run ./authclient on your client
-5. connect to your service as you do before(maybe you need to change port)
+Start from `cmd/authserver/config.yaml.template` and
+`cmd/authclient/config.yaml.template`. Replace all `CHANGE_ME_*` values with
+random secrets. Use at least 32 random bytes encoded with base64url or hex for
+keys and tokens. Keep config files out of Git and set permissions to `0600`.
 
-### Example
+Server key rotation: add the new `authkeys` entry with a unique `id`, deploy the
+server config, update clients to use the new `keyid` and `key`, verify access,
+then remove the old key after the overlap window.
 
-suppose you have a server(IP: 1.1.1.1) and running ssh service on port 22
+Token rotation: add the new token to the target `allowtokens`, deploy the
+server config, update clients, verify access, then remove the old token.
 
-* make sure UDP port 33333 and TCP port 2222 of server can be access from all sources
-* copy `authserver` to `$HOME/connauth/` on server
-* copy the content below to `$HOME/connauth/server_config.yaml` on the server:
-````
-authaddr: "0.0.0.0:33333"
-authkey: "a safe key"
-forwardconfigs:
-  - bindport: 2222
-    forwardaddr: "127.0.0.1:22"
-    allowtokens:
-      - "admin"
-````
-* `cd` to `$HOME/connauth` on your server and run
-````
-./authserver
-````
-* copy `authclient` to `$HOME/connauth` on client
-* copy the content below to `$HOME/connauth/client_config.yaml` on the client:
-````
-servers:
-  - addr: "1.1.1.1:33333"
-    key: "a safe key"
-    authconfigs:
-    - token: "admin"
-      port: 2222
-````
-* `cd` to `$HOME/connauth` on your client and run
-````
-./authclient
-````
-* run `ssh -p 2222 1.1.1.1` to connect to your ssh service on server
+
+## Operations
+
+Supervisor remains a suitable process manager. Use `autorestart=true`,
+`startsecs=5`, `stopwaitsecs=10`, explicit `user`, `directory`, `environment`,
+and `umask=077`. Keep old and new instance binaries, configs, logs, and program
+names separate during migration.
+
