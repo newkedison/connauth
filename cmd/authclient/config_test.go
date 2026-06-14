@@ -11,6 +11,7 @@ func TestClientConfigRejectsUnsafeAuthSettings(t *testing.T) {
 			name: "missing client id",
 			cfg: config{Servers: []serverConfig{{
 				Addr: "127.0.0.1:40100",
+				KeyID: "primary-2026-06",
 				Key:  "abcdefghijklmnopqrstuvwxyz123456",
 				AuthConfigs: []authConfig{{
 					Token: "token-abcdefghijklmnopqrstuvwxyz",
@@ -22,6 +23,7 @@ func TestClientConfigRejectsUnsafeAuthSettings(t *testing.T) {
 			name: "server address missing port",
 			cfg: config{ClientID: "workstation", Servers: []serverConfig{{
 				Addr: "127.0.0.1",
+				KeyID: "primary-2026-06",
 				Key:  "abcdefghijklmnopqrstuvwxyz123456",
 				AuthConfigs: []authConfig{{
 					Token: "token-abcdefghijklmnopqrstuvwxyz",
@@ -33,6 +35,7 @@ func TestClientConfigRejectsUnsafeAuthSettings(t *testing.T) {
 			name: "weak key",
 			cfg: config{ClientID: "workstation", Servers: []serverConfig{{
 				Addr: "127.0.0.1:40100",
+				KeyID: "primary-2026-06",
 				Key:  "a safe key",
 				AuthConfigs: []authConfig{{
 					Token: "token-abcdefghijklmnopqrstuvwxyz",
@@ -44,6 +47,7 @@ func TestClientConfigRejectsUnsafeAuthSettings(t *testing.T) {
 			name: "weak token",
 			cfg: config{ClientID: "workstation", Servers: []serverConfig{{
 				Addr: "127.0.0.1:40100",
+				KeyID: "primary-2026-06",
 				Key:  "abcdefghijklmnopqrstuvwxyz123456",
 				AuthConfigs: []authConfig{{
 					Token: "admin",
@@ -67,6 +71,7 @@ func TestClientConfigAcceptsConfirmedSSHMigrationConfig(t *testing.T) {
 		LogLevel: "info",
 		Servers: []serverConfig{{
 			Addr: "127.0.0.1:40100",
+			KeyID: "primary-2026-06",
 			Key:  "abcdefghijklmnopqrstuvwxyz123456",
 			AuthConfigs: []authConfig{{
 				Token: "token-abcdefghijklmnopqrstuvwxyz",
@@ -82,5 +87,26 @@ func TestClientConfigAcceptsConfirmedSSHMigrationConfig(t *testing.T) {
 func TestClientTemplateRequiresReplacingSecrets(t *testing.T) {
 	if _, err := readConfig("config.yaml.template"); err == nil {
 		t.Fatal("expected template config to be rejected until secrets are replaced")
+	}
+}
+
+func TestClientConfigRequiresKeyID(t *testing.T) {
+	cfg := config{
+		ClientID: "workstation",
+		Servers: []serverConfig{{
+			Addr: "127.0.0.1:40100",
+			Key:  "abcdefghijklmnopqrstuvwxyz123456",
+			AuthConfigs: []authConfig{{
+				Token: "token-abcdefghijklmnopqrstuvwxyz",
+				Port:  40022,
+			}},
+		}},
+	}
+	if err := cfg.CheckValid(); err == nil {
+		t.Fatal("expected missing key id to be rejected")
+	}
+	cfg.Servers[0].KeyID = "primary-2026-06"
+	if err := cfg.CheckValid(); err != nil {
+		t.Fatalf("expected key id config to be valid: %v", err)
 	}
 }

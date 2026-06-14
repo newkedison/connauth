@@ -22,6 +22,7 @@ func newUint32(x uint32) *uint32 {
 
 type serverConfig struct {
 	Addr        string
+	KeyID       string
 	Key         string
 	AuthConfigs []authConfig
 }
@@ -32,6 +33,9 @@ func (c *serverConfig) CheckValid() error {
 	}
 	if c.Key == "" {
 		return fmt.Errorf("key cannot be empty")
+	}
+	if err := validateIdentifier("keyid", c.KeyID); err != nil {
+		return err
 	}
 	if err := validateSecret("key", c.Key); err != nil {
 		return err

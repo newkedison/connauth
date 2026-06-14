@@ -15,6 +15,7 @@ servers:
   # UDP port of server for auth
   - addr: "127.0.0.1:40100"
     # for encryption, use key same as server
+    keyid: "primary-2026-06"
     key: "CHANGE_ME_RANDOM_32_BYTES_BASE64"
     # list all auth configs
     authconfigs:

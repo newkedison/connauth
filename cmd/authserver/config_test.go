@@ -11,7 +11,7 @@ func TestServerConfigRejectsUnsafeAuthSettings(t *testing.T) {
 		{
 			name: "missing server id",
 			cfg: config{
-				AuthKey: "abcdefghijklmnopqrstuvwxyz123456",
+				AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
 				ForwardConfigs: []forwardConfig{{
 					BindPort:        40022,
 					ForwardAddr:     "127.0.0.1:22",
@@ -24,7 +24,7 @@ func TestServerConfigRejectsUnsafeAuthSettings(t *testing.T) {
 			name: "weak auth key",
 			cfg: config{
 				ServerID: "connauth-server",
-				AuthKey:  "a safe key",
+				AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: "a safe key"}},
 				ForwardConfigs: []forwardConfig{{
 					BindPort:        40022,
 					ForwardAddr:     "127.0.0.1:22",
@@ -37,7 +37,7 @@ func TestServerConfigRejectsUnsafeAuthSettings(t *testing.T) {
 			name: "weak token",
 			cfg: config{
 				ServerID: "connauth-server",
-				AuthKey:  "abcdefghijklmnopqrstuvwxyz123456",
+				AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
 				ForwardConfigs: []forwardConfig{{
 					BindPort:        40022,
 					ForwardAddr:     "127.0.0.1:22",
@@ -62,7 +62,7 @@ func TestServerConfigAcceptsConfirmedSSHMigrationConfig(t *testing.T) {
 		ServerID: "connauth-server",
 		LogLevel: "info",
 		AuthAddr: "0.0.0.0:40100",
-		AuthKey:  "abcdefghijklmnopqrstuvwxyz123456",
+		AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
 		ForwardConfigs: []forwardConfig{{
 			BindPort:        40022,
 			ForwardAddr:     "127.0.0.1:22",
@@ -78,5 +78,48 @@ func TestServerConfigAcceptsConfirmedSSHMigrationConfig(t *testing.T) {
 func TestServerTemplateRequiresReplacingSecrets(t *testing.T) {
 	if _, err := readConfig("config.yaml.template"); err == nil {
 		t.Fatal("expected template config to be rejected until secrets are replaced")
+	}
+}
+
+func TestServerConfigValidatesAuthKeys(t *testing.T) {
+	expiry := uint32(60)
+	base := config{
+		ServerID: "connauth-server",
+		AuthAddr: "127.0.0.1:40100",
+		ForwardConfigs: []forwardConfig{{
+			BindPort:        40022,
+			ForwardAddr:     "127.0.0.1:22",
+			AllowTokens:     []string{"token-abcdefghijklmnopqrstuvwxyz"},
+			AuthExpiredTime: &expiry,
+		}},
+	}
+	tests := []struct {
+		name string
+		keys []authKeyConfig
+	}{
+		{
+			name: "duplicate key id",
+			keys: []authKeyConfig{
+				{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"},
+				{ID: "primary-2026-06", Key: "zyxwvutsrqponmlkjihgfedcba654321"},
+			},
+		},
+		{
+			name: "not yet valid key",
+			keys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456", NotBefore: "2999-01-01T00:00:00Z"}},
+		},
+		{
+			name: "expired key",
+			keys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456", NotAfter: "2000-01-01T00:00:00Z"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := base
+			cfg.AuthKeys = tt.keys
+			if err := cfg.CheckValid(); err == nil {
+				t.Fatal("expected auth key config to be rejected")
+			}
+		})
 	}
 }

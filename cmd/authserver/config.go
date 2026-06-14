@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"net"
 	"strings"
+	"time"
 	"unicode"
 
 	"gopkg.in/yaml.v2"
@@ -77,11 +78,46 @@ type config struct {
 		MaxSize  int
 	}
 	AuthAddr          string // UDP addr for auth by token
-	AuthKey           string // use for encryption
+	AuthKeys          []authKeyConfig
 	ForwardConfigs    []forwardConfig
 	GlobalAllowTokens []string // use asterisk(*) for wildcard
 	GlobalAllowIPs    []string // add to all ForwardConfigs
 	GlobalDenyIPs     []string // black list of IP addresses to connect to any port, support CIDR notation
+}
+
+type authKeyConfig struct {
+	ID        string
+	Key       string
+	NotBefore string
+	NotAfter  string
+}
+
+func (c *authKeyConfig) CheckValid(now time.Time) error {
+	if err := validateIdentifier("key id", c.ID); err != nil {
+		return err
+	}
+	if err := validateSecret("authkey", c.Key); err != nil {
+		return err
+	}
+	if c.NotBefore != "" {
+		t, err := time.Parse(time.RFC3339, c.NotBefore)
+		if err != nil {
+			return fmt.Errorf("notbefore invalid: %v", err)
+		}
+		if now.Before(t) {
+			return fmt.Errorf("authkey %s is not active yet", c.ID)
+		}
+	}
+	if c.NotAfter != "" {
+		t, err := time.Parse(time.RFC3339, c.NotAfter)
+		if err != nil {
+			return fmt.Errorf("notafter invalid: %v", err)
+		}
+		if !now.Before(t) {
+			return fmt.Errorf("authkey %s is expired", c.ID)
+		}
+	}
+	return nil
 }
 
 func validateIdentifier(kind string, value string) error {
@@ -126,8 +162,19 @@ func (c *config) CheckValid() error {
 	if _, err := net.ResolveUDPAddr("udp", c.AuthAddr); err != nil {
 		return fmt.Errorf("authaddr is invalid: %v", err)
 	}
-	if err := validateSecret("authkey", c.AuthKey); err != nil {
-		return err
+	if len(c.AuthKeys) == 0 {
+		return fmt.Errorf("authkeys cannot be empty")
+	}
+	seenKeys := map[string]bool{}
+	now := time.Now()
+	for i := range c.AuthKeys {
+		if err := c.AuthKeys[i].CheckValid(now); err != nil {
+			return fmt.Errorf("authkeys %d error: %v", i+1, err)
+		}
+		if seenKeys[c.AuthKeys[i].ID] {
+			return fmt.Errorf("duplicate authkey id %s", c.AuthKeys[i].ID)
+		}
+		seenKeys[c.AuthKeys[i].ID] = true
 	}
 	for _, token := range c.GlobalAllowTokens {
 		if token == "*" {
@@ -152,6 +199,13 @@ func (c *config) CheckValid() error {
 		c.ForwardConfigs[i].SetDefaultValue()
 	}
 	return nil
+}
+
+func (c *config) activeAuthKey() string {
+	if len(c.AuthKeys) == 0 {
+		return ""
+	}
+	return c.AuthKeys[0].Key
 }
 
 func readConfig(fileName string) (*config, error) {

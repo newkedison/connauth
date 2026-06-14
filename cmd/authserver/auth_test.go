@@ -34,7 +34,7 @@ func TestAuthClientDoesNotLogToken(t *testing.T) {
 	expiry := uint32(60)
 	globalConfig = &config{
 		AuthAddr: authAddr,
-		AuthKey:  authKey,
+		AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: authKey}},
 		ForwardConfigs: []forwardConfig{
 			{
 				BindPort:        2222,

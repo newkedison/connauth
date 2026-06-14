@@ -22,8 +22,12 @@ loglevel: "info"
 # UDP port for auth, send auth data to this address
 # NOTE: There will be no reply regardless of authed or not
 authaddr: "0.0.0.0:40100"
-# for encryption, cannot be empty
-authkey: "CHANGE_ME_RANDOM_32_BYTES_BASE64"
+# auth keys for encryption, must replace placeholders before use
+authkeys:
+  - id: "primary-2026-06"
+    key: "CHANGE_ME_RANDOM_32_BYTES_BASE64"
+    notbefore: "2026-06-01T00:00:00Z"
+    notafter: "2026-09-01T00:00:00Z"
 
 # list all forward configs here
 forwardconfigs:

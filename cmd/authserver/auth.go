@@ -165,7 +165,7 @@ func waitForAuth(addr string) error {
 			if n == 0 {
 				continue
 			}
-			if buf, err = decrypt(buf[:n], []byte(globalConfig.AuthKey)); err != nil {
+			if buf, err = decrypt(buf[:n], []byte(globalConfig.activeAuthKey())); err != nil {
 				log.Infof("decrypt data from %s failed: %v", peer.String(), err)
 				continue
 			}
