@@ -88,40 +88,84 @@ func startForward(cfg *forwardConfig) error {
 	if err != nil {
 		return fmt.Errorf("listen on port %d failed: %v", cfg.BindPort, err)
 	}
-	log.Infof("listening on %d, will forward to %s", cfg.BindPort, cfg.ForwardAddr)
+	log.WithFields(log.Fields{
+		"event":        "forward_listening",
+		"port":         cfg.BindPort,
+		"forward_addr": cfg.ForwardAddr,
+		"result":       "success",
+	}).Infof("listening on %d, will forward to %s", cfg.BindPort, cfg.ForwardAddr)
 	limiter := newConnectionLimiter(*cfg.MaxConnGlobal, *cfg.MaxConnPerIP)
 	go func() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				log.Warnf("accept new connection on port %d fail: %v", cfg.BindPort, err)
+				log.WithFields(log.Fields{
+					"event":  "forward_accept_failed",
+					"port":   cfg.BindPort,
+					"result": "failed",
+					"error":  err.Error(),
+				}).Warnf("accept new connection on port %d fail: %v", cfg.BindPort, err)
 				continue
 			}
-			log.Infof("port %d receive new connection from %v",
-				cfg.BindPort, conn.RemoteAddr())
-			if isIPAuthed(cfg, conn.RemoteAddr().(*net.TCPAddr).IP) {
-				log.Infof("%v was authed", conn.RemoteAddr())
+			remoteAddr := conn.RemoteAddr().String()
+			remoteIP := conn.RemoteAddr().(*net.TCPAddr).IP
+			if isIPAuthed(cfg, remoteIP) {
+				log.WithFields(log.Fields{
+					"event":       "forward_authorized",
+					"source_ip":   remoteIP.String(),
+					"source_addr": remoteAddr,
+					"port":        cfg.BindPort,
+					"result":      "authorized",
+				}).Infof("port %d receive authorized connection from %v", cfg.BindPort, conn.RemoteAddr())
 				go func() {
-					remoteIP := conn.RemoteAddr().(*net.TCPAddr).IP
 					if !limiter.acquire(remoteIP) {
-						log.Warnf("connection from %s rejected by resource limit", conn.RemoteAddr().String())
+						log.WithFields(log.Fields{
+							"event":       "forward_rejected",
+							"source_ip":   remoteIP.String(),
+							"source_addr": remoteAddr,
+							"port":        cfg.BindPort,
+							"result":      "rejected",
+							"reason":      "resource_limit",
+						}).Warnf("connection from %s rejected by resource limit", conn.RemoteAddr().String())
 						_ = conn.Close()
 						return
 					}
 					defer limiter.release(remoteIP)
 					if err := handleConn(conn.(*net.TCPConn), cfg.ForwardAddr, time.Duration(*cfg.DialTimeoutMS)*time.Millisecond, time.Duration(*cfg.IdleTimeoutMS)*time.Millisecond); err != nil {
-						log.Warnf("handle connection (from %s to %d) failed: %v", conn.RemoteAddr().String(), cfg.BindPort, err)
+						log.WithFields(log.Fields{
+							"event":        "forward_failed",
+							"source_ip":    remoteIP.String(),
+							"source_addr":  remoteAddr,
+							"port":         cfg.BindPort,
+							"forward_addr": cfg.ForwardAddr,
+							"result":       "failed",
+							"error":        err.Error(),
+						}).Warnf("handle connection (from %s to %d) failed: %v", conn.RemoteAddr().String(), cfg.BindPort, err)
 						_ = conn.Close()
 					}
 				}()
 			} else {
-				log.Infof("%v haven't auth yet, close after %d ms",
-					conn.RemoteAddr(), *cfg.DropDelayTime)
+				log.WithFields(log.Fields{
+					"event":         "forward_unauthorized",
+					"source_ip":     remoteIP.String(),
+					"source_addr":   remoteAddr,
+					"port":          cfg.BindPort,
+					"result":        "rejected",
+					"reason":        "not_authed",
+					"drop_delay_ms": *cfg.DropDelayTime,
+				}).Infof("%v haven't auth yet, close after %d ms", conn.RemoteAddr(), *cfg.DropDelayTime)
 				if *cfg.DropDelayTime == 0 {
 					_ = conn.Close()
 				} else {
 					time.AfterFunc(time.Duration(*cfg.DropDelayTime)*time.Millisecond, func() {
-						log.Infof("%v was closed", conn.RemoteAddr())
+						log.WithFields(log.Fields{
+							"event":       "forward_closed",
+							"source_ip":   remoteIP.String(),
+							"source_addr": remoteAddr,
+							"port":        cfg.BindPort,
+							"result":      "closed",
+							"reason":      "drop_delay_elapsed",
+						}).Infof("%v was closed", conn.RemoteAddr())
 						_ = conn.Close()
 					})
 				}

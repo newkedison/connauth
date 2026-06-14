@@ -77,10 +77,15 @@ func TestSLSHookFiltersSecretFieldsAndSendsSafeMetadata(t *testing.T) {
 	entry := logrus.NewEntry(logrus.New()).WithFields(logrus.Fields{
 		"event":                "auth",
 		"source_ip":            "192.0.2.10",
+		"source_addr":          "192.0.2.10:51000",
 		"port":                 40022,
+		"forward_addr":         "127.0.0.1:22",
 		"client_id":            "workstation",
 		"key_id":               "primary-2026-06",
 		"result":               "ok",
+		"reason":               "authorized",
+		"drop_delay_ms":        0,
+		"error":                "dial failed",
 		"token":                "token-abcdefghijklmnopqrstuvwxyz",
 		"authkey":              "abcdefghijklmnopqrstuvwxyz123456",
 		"AccessKeySecret":      "secret",
@@ -89,6 +94,7 @@ func TestSLSHookFiltersSecretFieldsAndSendsSafeMetadata(t *testing.T) {
 		"aliyun_access_secret": "secret",
 	})
 	entry.Level = logrus.InfoLevel
+	entry.Message = "auth accepted"
 	if err := hook.Fire(entry); err != nil {
 		t.Fatalf("fire sls hook: %v", err)
 	}
@@ -100,7 +106,18 @@ func TestSLSHookFiltersSecretFieldsAndSendsSafeMetadata(t *testing.T) {
 	for _, c := range received.Logs[0].Contents {
 		fields[*c.Key] = *c.Value
 	}
-	if fields["event"] != "auth" || fields["source_ip"] != "192.0.2.10" || fields["client_id"] != "workstation" {
+	if *received.Topic != "auth" {
+		t.Fatalf("expected configured topic to be preserved, got %q", *received.Topic)
+	}
+	if fields["message"] != "auth accepted" ||
+		fields["event"] != "auth" ||
+		fields["source_ip"] != "192.0.2.10" ||
+		fields["source_addr"] != "192.0.2.10:51000" ||
+		fields["client_id"] != "workstation" ||
+		fields["forward_addr"] != "127.0.0.1:22" ||
+		fields["reason"] != "authorized" ||
+		fields["drop_delay_ms"] != "0" ||
+		fields["error"] != "dial failed" {
 		t.Fatalf("safe fields missing: %#v", fields)
 	}
 	for _, forbidden := range []string{"token", "authkey", "AccessKeySecret", "raw_payload", "access_key_secret", "aliyun_access_secret"} {

@@ -36,7 +36,13 @@ func refreshClientList(cfg *forwardConfig) {
 	now := time.Now()
 	for k, v := range list {
 		if !v.ExpiresAt.After(now) {
-			log.Infof("authed client %s to port %d was expired", k.IP, cfg.BindPort)
+			log.WithFields(log.Fields{
+				"event":     "auth_expired",
+				"source_ip": k.IP,
+				"client_id": k.ClientID,
+				"port":      cfg.BindPort,
+				"result":    "expired",
+			}).Infof("authed client %s to port %d was expired", k.IP, cfg.BindPort)
 			delete(list, k)
 		}
 	}
@@ -346,9 +352,24 @@ func handleChallengeResponse(peer *net.UDPAddr, env authproto.Envelope, plain []
 		return
 	}
 	if authorizeClient(peer.IP.String(), resp.ClientID, resp.Port, resp.Token) {
-		log.Infof("Auth IP %v to port %d", peer.IP, resp.Port)
+		log.WithFields(log.Fields{
+			"event":     "auth_success",
+			"source_ip": peer.IP.String(),
+			"client_id": resp.ClientID,
+			"key_id":    env.KeyID,
+			"port":      resp.Port,
+			"result":    "success",
+		}).Infof("Auth IP %v to port %d", peer.IP, resp.Port)
 	} else {
-		log.Warnf("Auth IP %v failed: port %d", peer.IP, resp.Port)
+		log.WithFields(log.Fields{
+			"event":     "auth_failed",
+			"source_ip": peer.IP.String(),
+			"client_id": resp.ClientID,
+			"key_id":    env.KeyID,
+			"port":      resp.Port,
+			"result":    "failed",
+			"reason":    "token_or_port_not_allowed",
+		}).Warnf("Auth IP %v failed: port %d", peer.IP, resp.Port)
 	}
 }
 

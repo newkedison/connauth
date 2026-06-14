@@ -107,8 +107,11 @@ func (h *SLSHook) Fire(entry *logrus.Entry) error {
 	fields := safeSLSFields(entry)
 	now := h.now()
 	sec := uint32(now.Unix())
-	contents := make([]*LogContent, 0, len(fields)+1)
+	contents := make([]*LogContent, 0, len(fields)+2)
 	contents = append(contents, logContent("level", entry.Level.String()))
+	if entry.Message != "" {
+		contents = append(contents, logContent("message", entry.Message))
+	}
 	for _, key := range sortedKeys(fields) {
 		contents = append(contents, logContent(key, fmt.Sprint(fields[key])))
 	}
@@ -125,12 +128,17 @@ func (h *SLSHook) Fire(entry *logrus.Entry) error {
 
 func safeSLSFields(entry *logrus.Entry) map[string]interface{} {
 	allowed := map[string]bool{
-		"event":     true,
-		"source_ip": true,
-		"port":      true,
-		"client_id": true,
-		"key_id":    true,
-		"result":    true,
+		"event":         true,
+		"source_ip":     true,
+		"source_addr":   true,
+		"port":          true,
+		"forward_addr":  true,
+		"client_id":     true,
+		"key_id":        true,
+		"result":        true,
+		"reason":        true,
+		"drop_delay_ms": true,
+		"error":         true,
 	}
 	out := make(map[string]interface{})
 	for k, v := range entry.Data {
