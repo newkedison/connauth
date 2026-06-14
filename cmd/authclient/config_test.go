@@ -10,9 +10,10 @@ func TestClientConfigRejectsUnsafeAuthSettings(t *testing.T) {
 		{
 			name: "missing client id",
 			cfg: config{Servers: []serverConfig{{
-				Addr: "127.0.0.1:40100",
-				KeyID: "primary-2026-06",
-				Key:  "abcdefghijklmnopqrstuvwxyz123456",
+				Addr:     "127.0.0.1:40100",
+				ServerID: "connauth-server",
+				KeyID:    "primary-2026-06",
+				Key:      "abcdefghijklmnopqrstuvwxyz123456",
 				AuthConfigs: []authConfig{{
 					Token: "token-abcdefghijklmnopqrstuvwxyz",
 					Port:  40022,
@@ -22,9 +23,10 @@ func TestClientConfigRejectsUnsafeAuthSettings(t *testing.T) {
 		{
 			name: "server address missing port",
 			cfg: config{ClientID: "workstation", Servers: []serverConfig{{
-				Addr: "127.0.0.1",
-				KeyID: "primary-2026-06",
-				Key:  "abcdefghijklmnopqrstuvwxyz123456",
+				Addr:     "127.0.0.1",
+				ServerID: "connauth-server",
+				KeyID:    "primary-2026-06",
+				Key:      "abcdefghijklmnopqrstuvwxyz123456",
 				AuthConfigs: []authConfig{{
 					Token: "token-abcdefghijklmnopqrstuvwxyz",
 					Port:  40022,
@@ -34,9 +36,10 @@ func TestClientConfigRejectsUnsafeAuthSettings(t *testing.T) {
 		{
 			name: "weak key",
 			cfg: config{ClientID: "workstation", Servers: []serverConfig{{
-				Addr: "127.0.0.1:40100",
-				KeyID: "primary-2026-06",
-				Key:  "a safe key",
+				Addr:     "127.0.0.1:40100",
+				ServerID: "connauth-server",
+				KeyID:    "primary-2026-06",
+				Key:      "a safe key",
 				AuthConfigs: []authConfig{{
 					Token: "token-abcdefghijklmnopqrstuvwxyz",
 					Port:  40022,
@@ -46,9 +49,10 @@ func TestClientConfigRejectsUnsafeAuthSettings(t *testing.T) {
 		{
 			name: "weak token",
 			cfg: config{ClientID: "workstation", Servers: []serverConfig{{
-				Addr: "127.0.0.1:40100",
-				KeyID: "primary-2026-06",
-				Key:  "abcdefghijklmnopqrstuvwxyz123456",
+				Addr:     "127.0.0.1:40100",
+				ServerID: "connauth-server",
+				KeyID:    "primary-2026-06",
+				Key:      "abcdefghijklmnopqrstuvwxyz123456",
 				AuthConfigs: []authConfig{{
 					Token: "admin",
 					Port:  40022,
@@ -70,9 +74,10 @@ func TestClientConfigAcceptsConfirmedSSHMigrationConfig(t *testing.T) {
 		ClientID: "workstation",
 		LogLevel: "info",
 		Servers: []serverConfig{{
-			Addr: "127.0.0.1:40100",
-			KeyID: "primary-2026-06",
-			Key:  "abcdefghijklmnopqrstuvwxyz123456",
+			Addr:     "127.0.0.1:40100",
+			ServerID: "connauth-server",
+			KeyID:    "primary-2026-06",
+			Key:      "abcdefghijklmnopqrstuvwxyz123456",
 			AuthConfigs: []authConfig{{
 				Token: "token-abcdefghijklmnopqrstuvwxyz",
 				Port:  40022,
@@ -94,8 +99,9 @@ func TestClientConfigRequiresKeyID(t *testing.T) {
 	cfg := config{
 		ClientID: "workstation",
 		Servers: []serverConfig{{
-			Addr: "127.0.0.1:40100",
-			Key:  "abcdefghijklmnopqrstuvwxyz123456",
+			Addr:     "127.0.0.1:40100",
+			ServerID: "connauth-server",
+			Key:      "abcdefghijklmnopqrstuvwxyz123456",
 			AuthConfigs: []authConfig{{
 				Token: "token-abcdefghijklmnopqrstuvwxyz",
 				Port:  40022,
@@ -108,5 +114,27 @@ func TestClientConfigRequiresKeyID(t *testing.T) {
 	cfg.Servers[0].KeyID = "primary-2026-06"
 	if err := cfg.CheckValid(); err != nil {
 		t.Fatalf("expected key id config to be valid: %v", err)
+	}
+}
+
+func TestClientConfigRequiresServerID(t *testing.T) {
+	cfg := config{
+		ClientID: "workstation",
+		Servers: []serverConfig{{
+			Addr:  "127.0.0.1:40100",
+			KeyID: "primary-2026-06",
+			Key:   "abcdefghijklmnopqrstuvwxyz123456",
+			AuthConfigs: []authConfig{{
+				Token: "token-abcdefghijklmnopqrstuvwxyz",
+				Port:  40022,
+			}},
+		}},
+	}
+	if err := cfg.CheckValid(); err == nil {
+		t.Fatal("expected missing server id to be rejected")
+	}
+	cfg.Servers[0].ServerID = "connauth-server"
+	if err := cfg.CheckValid(); err != nil {
+		t.Fatalf("expected server id config to be valid: %v", err)
 	}
 }

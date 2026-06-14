@@ -14,6 +14,8 @@ loglevel: "info"
 servers:
   # UDP port of server for auth
   - addr: "127.0.0.1:40100"
+    # stable server id configured on authserver
+    serverid: "connauth-server"
     # for encryption, use key same as server
     keyid: "primary-2026-06"
     key: "CHANGE_ME_RANDOM_32_BYTES_BASE64"
