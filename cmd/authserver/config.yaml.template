@@ -48,7 +48,15 @@ forwardconfigs:
       - "192.168.0.0/16"
     # milliseconds before close unauth connection, 0 for close immediately
     # can be omit, default: 0
-    dropdelaytime: 1000
+    dropdelaytime: 0
+    # max active TCP connections per source IP, default: 16
+    maxconnperip: 16
+    # max active TCP connections for this forward, default: 1024
+    maxconnglobal: 1024
+    # backend dial timeout in milliseconds, default: 3000
+    dialtimeoutms: 3000
+    # idle timeout in milliseconds for established forwarding, default: 300000
+    idletimeoutms: 300000
     # seconds before an auth of client(via token) was expired
     # connected connections will not be closed because of auth expired
     # but client must re-auth before creating new connection

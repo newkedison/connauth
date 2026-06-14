@@ -29,6 +29,10 @@ type forwardConfig struct {
 	AllowIPs        []string // IP white list that can always connect and never expired, support CIDR notation, default: empty
 	DropDelayTime   *uint32  // milliseconds before close an unauth connection, 0 for close immediately, default: 0
 	AuthExpiredTime *uint32  // seconds before an auth by token is expired, default 3600
+	MaxConnPerIP    *uint32
+	MaxConnGlobal   *uint32
+	DialTimeoutMS   *uint32
+	IdleTimeoutMS   *uint32
 }
 
 func (c *forwardConfig) CheckValid() error {
@@ -37,6 +41,9 @@ func (c *forwardConfig) CheckValid() error {
 	}
 	if c.BindPort == 0 || c.BindPort == 65535 {
 		return fmt.Errorf("bindport allow range 1~65534")
+	}
+	if c.DropDelayTime != nil && *c.DropDelayTime > 5000 {
+		return fmt.Errorf("dropdelaytime must not exceed 5000 ms")
 	}
 	if _, _, err := net.SplitHostPort(c.ForwardAddr); err != nil {
 		return fmt.Errorf("forwardaddr is invalid %v", err)
@@ -57,6 +64,18 @@ func (c *forwardConfig) SetDefaultValue() {
 	}
 	if c.AuthExpiredTime == nil {
 		c.AuthExpiredTime = newUint32(3600)
+	}
+	if c.MaxConnPerIP == nil {
+		c.MaxConnPerIP = newUint32(16)
+	}
+	if c.MaxConnGlobal == nil {
+		c.MaxConnGlobal = newUint32(1024)
+	}
+	if c.DialTimeoutMS == nil {
+		c.DialTimeoutMS = newUint32(3000)
+	}
+	if c.IdleTimeoutMS == nil {
+		c.IdleTimeoutMS = newUint32(300000)
 	}
 }
 
