@@ -32,7 +32,7 @@ func TestAuthPerformsChallengeResponseHandshake(t *testing.T) {
 		ServerID: serverID,
 		KeyID:    "primary-2026-06",
 		Key:      key,
-	}, utils.NewAuthRequest(token, port))
+	}, utils.NewAuthConfig(token, port))
 	if err != nil {
 		t.Fatalf("auth failed: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestAuthRejectsChallengeWithWrongClientNonce(t *testing.T) {
 		ServerID: serverID,
 		KeyID:    "primary-2026-06",
 		Key:      key,
-	}, utils.NewAuthRequest(token, port))
+	}, utils.NewAuthConfig(token, port))
 	if err == nil {
 		t.Fatal("expected auth to reject challenge with wrong client nonce")
 	}

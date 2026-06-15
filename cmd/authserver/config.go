@@ -80,15 +80,6 @@ type config struct {
 		DisplayName string
 		Description string
 	}
-	RedisLogger struct {
-		Enabled  bool
-		Addr     string
-		Port     int
-		Password string
-		Key      string
-		DB       int
-		MaxSize  int
-	}
 	Logger struct {
 		AliyunSLS struct {
 			Enabled         bool
@@ -411,23 +402,6 @@ func readConfig(fileName string) (*config, error) {
 	err = yaml.Unmarshal(content, c)
 	if err != nil {
 		return nil, fmt.Errorf("parse config file %s fail: %v", fileName, err)
-	}
-	if c.RedisLogger.Enabled {
-		if c.RedisLogger.Addr == "" {
-			return nil, fmt.Errorf("must provide the address of redis server")
-		}
-		if c.RedisLogger.Port < 1 || c.RedisLogger.Port > 65534 {
-			return nil, fmt.Errorf("invalid redis server port")
-		}
-		if c.RedisLogger.Key == "" {
-			return nil, fmt.Errorf("must provide a list key in redis")
-		}
-		if c.RedisLogger.DB < 0 || c.RedisLogger.DB > 15 {
-			return nil, fmt.Errorf("invalid redis DB")
-		}
-		if c.RedisLogger.MaxSize < 0 {
-			c.RedisLogger.MaxSize = 0
-		}
 	}
 	if c.Logger.AliyunSLS.Enabled {
 		if c.Logger.AliyunSLS.Endpoint == "" ||

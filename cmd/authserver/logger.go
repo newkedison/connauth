@@ -2,30 +2,11 @@ package main
 
 import (
 	safelogger "connauth/utils/logger"
-	"connauth/utils/logrus/hooks"
 	log "github.com/sirupsen/logrus"
 	"strings"
 )
 
 func initLogger(cfg *config) error {
-	if cfg.RedisLogger.Enabled {
-		c := hooks.HookConfig{
-			Key:      cfg.RedisLogger.Key,
-			Format:   "v0",
-			App:      "app",
-			Host:     cfg.RedisLogger.Addr,
-			Password: cfg.RedisLogger.Password,
-			Hostname: "",
-			Port:     cfg.RedisLogger.Port,
-			DB:       cfg.RedisLogger.DB,
-			MaxSize:  cfg.RedisLogger.MaxSize,
-		}
-		if hook, err := hooks.NewRedisHook(c); err == nil {
-			log.AddHook(hook)
-		} else {
-			return err
-		}
-	}
 	if cfg.Logger.AliyunSLS.Enabled {
 		slsCfg := safelogger.AliyunSLSConfig{
 			Enabled:         cfg.Logger.AliyunSLS.Enabled,

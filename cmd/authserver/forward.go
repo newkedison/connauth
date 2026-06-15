@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+type forwardRuntime struct {
+	Stop chan struct{}
+	Done <-chan struct{}
+}
+
 type connectionLimiter struct {
 	mux       sync.Mutex
 	global    int
@@ -84,9 +89,14 @@ func handleConn(source *net.TCPConn, forwardDestAddr string, dialTimeout time.Du
 }
 
 func startForward(cfg *forwardConfig) error {
+	_, err := startForwardWithStop(cfg, make(chan struct{}))
+	return err
+}
+
+func startForwardWithStop(cfg *forwardConfig, stop chan struct{}) (*forwardRuntime, error) {
 	listener, err := net.Listen("tcp", ":"+strconv.Itoa(int(cfg.BindPort)))
 	if err != nil {
-		return fmt.Errorf("listen on port %d failed: %v", cfg.BindPort, err)
+		return nil, fmt.Errorf("listen on port %d failed: %v", cfg.BindPort, err)
 	}
 	log.WithFields(log.Fields{
 		"event":        "forward_listening",
@@ -95,10 +105,24 @@ func startForward(cfg *forwardConfig) error {
 		"result":       "success",
 	}).Infof("listening on %d, will forward to %s", cfg.BindPort, cfg.ForwardAddr)
 	limiter := newConnectionLimiter(*cfg.MaxConnGlobal, *cfg.MaxConnPerIP)
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(3)
 	go func() {
+		defer wg.Done()
+		<-stop
+		_ = listener.Close()
+	}()
+	go func() {
+		defer wg.Done()
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
+				select {
+				case <-stop:
+					return
+				default:
+				}
 				log.WithFields(log.Fields{
 					"event":  "forward_accept_failed",
 					"port":   cfg.BindPort,
@@ -173,10 +197,21 @@ func startForward(cfg *forwardConfig) error {
 		}
 	}()
 	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
 		for {
 			refreshClientList(cfg)
-			time.Sleep(time.Second)
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+			}
 		}
 	}()
-	return nil
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	return &forwardRuntime{Stop: stop, Done: done}, nil
 }

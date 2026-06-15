@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -91,4 +92,86 @@ func TestHandleConnUsesDialTimeout(t *testing.T) {
 	if err := <-dialDone; err != nil {
 		t.Fatalf("source dial failed: %v", err)
 	}
+}
+
+func TestStartForwardStopsAndReleasesListener(t *testing.T) {
+	backend, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen backend: %v", err)
+	}
+	defer backend.Close()
+	bindPort := freeTCPPort(t)
+	cfg := forwardConfig{
+		BindPort:    bindPort,
+		ForwardAddr: backend.Addr().String(),
+	}
+	cfg.SetDefaultValue()
+	globalConfig = &config{}
+	initClientList()
+
+	done, err := startForwardWithStop(&cfg, make(chan struct{}))
+	if err != nil {
+		t.Fatalf("start forward: %v", err)
+	}
+	close(done.Stop)
+	select {
+	case <-done.Done:
+	case <-time.After(time.Second):
+		t.Fatal("forward listener did not stop")
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", intPort(bindPort)))
+	if err != nil {
+		t.Fatalf("expected bind port to be released: %v", err)
+	}
+	_ = listener.Close()
+}
+
+func TestStartForwardRejectsUnauthorizedConnection(t *testing.T) {
+	backend, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen backend: %v", err)
+	}
+	defer backend.Close()
+	bindPort := freeTCPPort(t)
+	cfg := forwardConfig{
+		BindPort:    bindPort,
+		ForwardAddr: backend.Addr().String(),
+	}
+	cfg.SetDefaultValue()
+	globalConfig = &config{}
+	initClientList()
+
+	runtime, err := startForwardWithStop(&cfg, make(chan struct{}))
+	if err != nil {
+		t.Fatalf("start forward: %v", err)
+	}
+	defer func() {
+		close(runtime.Stop)
+		<-runtime.Done
+	}()
+
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", intPort(bindPort)), time.Second)
+	if err != nil {
+		t.Fatalf("dial forward: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	buf := make([]byte, 1)
+	if _, err := conn.Read(buf); err == nil {
+		t.Fatal("expected unauthorized connection to close")
+	}
+}
+
+func freeTCPPort(t *testing.T) uint16 {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp: %v", err)
+	}
+	defer listener.Close()
+	return uint16(listener.Addr().(*net.TCPAddr).Port)
+}
+
+func intPort(port uint16) string {
+	return strconv.Itoa(int(port))
 }

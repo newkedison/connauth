@@ -166,7 +166,7 @@ func matchTokenRules(token string, scope string, rules []accessRule) (authResult
 	return authResult{}, false
 }
 
-func authClient(req utils.AuthRequest, ip string) bool {
+func authClient(req utils.AuthConfig, ip string) bool {
 	return authorizeClient(ip, "", req.Port, req.Token).Authorized
 }
 

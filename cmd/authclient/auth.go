@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func auth(server *serverConfig, req *utils.AuthRequest) error {
+func auth(server *serverConfig, req *utils.AuthConfig) error {
 	dest, err := net.ResolveUDPAddr("udp", server.Addr)
 	if err != nil {
 		return fmt.Errorf("cannot resolve address %s: %v", server.Addr, err)
@@ -135,7 +135,7 @@ func startAuthOfServer(server *serverConfig, stop <-chan struct{}) <-chan struct
 			defer wg.Done()
 			log.Infof("start auth to port %d, re-auth interval %d seconds",
 				cfg.Port, *cfg.Interval)
-			request := utils.NewAuthRequest(cfg.Token, cfg.Port)
+			request := utils.NewAuthConfig(cfg.Token, cfg.Port)
 			if !request.IsValid() {
 				log.Warnf("request invalid, stop auth for port %d", cfg.Port)
 				return

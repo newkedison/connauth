@@ -148,10 +148,10 @@ func TestServerConfigAllowsTokenRotationWindow(t *testing.T) {
 	}
 	globalConfig = &cfg
 	initClientList()
-	if !authClient(*newAuthRequestForTest("old-token-abcdefghijklmnopqrstuvwxyz", 40022), "192.0.2.10") {
+	if !authClient(*newAuthConfigForTest("old-token-abcdefghijklmnopqrstuvwxyz", 40022), "192.0.2.10") {
 		t.Fatal("expected old token to auth during rotation window")
 	}
-	if !authClient(*newAuthRequestForTest("new-token-abcdefghijklmnopqrstuvwxyz", 40022), "192.0.2.11") {
+	if !authClient(*newAuthConfigForTest("new-token-abcdefghijklmnopqrstuvwxyz", 40022), "192.0.2.11") {
 		t.Fatal("expected new token to auth during rotation window")
 	}
 }
@@ -248,6 +248,6 @@ logger:
 	}
 }
 
-func newAuthRequestForTest(token string, port uint16) *utils.AuthRequest {
-	return utils.NewAuthRequest(token, port)
+func newAuthConfigForTest(token string, port uint16) *utils.AuthConfig {
+	return utils.NewAuthConfig(token, port)
 }

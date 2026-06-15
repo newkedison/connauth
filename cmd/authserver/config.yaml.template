@@ -11,14 +11,6 @@ loglevel: "info"
 #   displayname: "authserver"
 #   description: "auth client and forward to the real backend"
 
-# uncomment below to write log to redis
-# redislogger:
-#   enabled: true
-#   addr: "127.0.0.1"
-#   port: 6379
-#   password: ""
-#   key: "authserver/log"
-
 logger:
   aliyunsls:
     enabled: false
