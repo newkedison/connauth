@@ -1,7 +1,9 @@
 # rename this file to server_config.yaml to use by default
 
 # available level: trace, debug, info, warn, error, fatal, panic
-loglevel: "debug"
+serverid: "connauth-server"
+
+loglevel: "info"
 
 # if want to run as service on windows, uncomment below
 # service:
@@ -9,43 +11,62 @@ loglevel: "debug"
 #   displayname: "authserver"
 #   description: "auth client and forward to the real backend"
 
-# uncomment below to write log to redis
-# redislogger:
-#   enabled: true
-#   addr: "127.0.0.1"
-#   port: 6379
-#   password: ""
-#   key: "authserver/log"
+logger:
+  aliyunsls:
+    enabled: false
+    endpoint: ""
+    projectname: ""
+    logstorename: ""
+    topic: ""
+    accesskeyid: ""
+    accesskeysecret: ""
 
 # UDP port for auth, send auth data to this address
 # NOTE: There will be no reply regardless of authed or not
-authaddr: "0.0.0.0:33333"
-# for encryption, cannot be empty
-authkey: "a safe key"
+authaddr: "0.0.0.0:40100"
+# auth keys for encryption, must replace placeholders before use
+authkeys:
+  - id: "primary-2026-06"
+    key: "CHANGE_ME_RANDOM_32_BYTES_BASE64"
+    notbefore: "2026-06-01T00:00:00Z"
+    notafter: "2026-09-01T00:00:00Z"
+
+# reusable token and IP rules. Logs record only rule IDs, never token values.
+tokens:
+  ssh-primary: "CHANGE_ME_RANDOM_TOKEN"
+
+iprules:
+  office-primary: "192.168.0.0/16"
 
 # list all forward configs here
 forwardconfigs:
   # bind to TCP port of all network interfaces
-  - bindport: 33333
+  - bindport: 40022
     # this was the address of real backend
     # will forward connections from bindport to forwardaddr if the ip of client was authed
-    forwardaddr: "127.0.0.1:22222"
-    # list all valid tokens here, use asterisk(*) for wildcard
+    forwardaddr: "127.0.0.1:22"
+    # list all valid tokens here. Use tokenref for reusable rules or token for one-off inline values.
     # can be omit, default: empty
     allowtokens:
-      - "valid_token"
-      - "token_*"
-      - "use_*_for_wildcard"
-      - "*can*use*multi*asterisk*"
-    # list all valid IPs here, connections from these IPs will always accept
+      - tokenref: "ssh-primary"
+      # - token: "CHANGE_ME_ONE_OFF_RANDOM_TOKEN"
+    # list all valid IPs here. Connections from these IPs will always accept.
     # support CIDR notation
     # can be omit, default: empty
     allowips:
-      - "127.0.0.1"
-      - "192.168.0.0/16"
+      - ipref: "office-primary"
+      - ip: "127.0.0.1"
     # milliseconds before close unauth connection, 0 for close immediately
     # can be omit, default: 0
-    dropdelaytime: 1000
+    dropdelaytime: 0
+    # max active TCP connections per source IP, default: 16
+    maxconnperip: 16
+    # max active TCP connections for this forward, default: 1024
+    maxconnglobal: 1024
+    # backend dial timeout in milliseconds, default: 3000
+    dialtimeoutms: 3000
+    # idle timeout in milliseconds for established forwarding, default: 300000
+    idletimeoutms: 300000
     # seconds before an auth of client(via token) was expired
     # connected connections will not be closed because of auth expired
     # but client must re-auth before creating new connection
@@ -53,14 +74,12 @@ forwardconfigs:
     authexpiredtime: 30
 
 # these tokens can be used to auth client connect to any ports in forwardconfigs
-globalallowtokens:
-  - "global_token"
-  - "admin*"
+globalallowtokens: []
 
 # these IPs can connect to any port without auth
 globalallowips:
-  - "10.0.0.0/8"
+  - ipref: "office-primary"
 
 # these IPs cannot connect to any port even if it has a valid token or listing in globalallowips and allowips
 globaldenyips:
-  - "1.0.0.0/8"
+  - ip: "1.0.0.0/8"

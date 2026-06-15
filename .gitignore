@@ -1,9 +1,10 @@
 .*
+!.gitleaks.toml
 *~
 connauth
 *.exe
 *.yaml
 AGENTS.md
-authclient
-authserver
+/authclient
+/authserver
 docs/superpowers/plans/
