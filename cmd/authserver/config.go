@@ -23,12 +23,12 @@ func newUint32(x uint32) *uint32 {
 }
 
 type forwardConfig struct {
-	BindPort        uint16   // listening port, eg: 80, will bind to all interfaces
-	ForwardAddr     string   // address of real backend, eg: 127.0.0.1:8080
-	AllowTokens     []string // client can be auth by tokens list here, use asterisk(*) for wildcard, default: empty
-	AllowIPs        []string // IP white list that can always connect and never expired, support CIDR notation, default: empty
-	DropDelayTime   *uint32  // milliseconds before close an unauth connection, 0 for close immediately, default: 0
-	AuthExpiredTime *uint32  // seconds before an auth by token is expired, default 3600
+	BindPort        uint16       // listening port, eg: 80, will bind to all interfaces
+	ForwardAddr     string       // address of real backend, eg: 127.0.0.1:8080
+	AllowTokens     []accessRule // client can be auth by tokens list here, default: empty
+	AllowIPs        []accessRule // IP white list that can always connect and never expired, support CIDR notation, default: empty
+	DropDelayTime   *uint32      // milliseconds before close an unauth connection, 0 for close immediately, default: 0
+	AuthExpiredTime *uint32      // seconds before an auth by token is expired, default 3600
 	MaxConnPerIP    *uint32
 	MaxConnGlobal   *uint32
 	DialTimeoutMS   *uint32
@@ -47,13 +47,6 @@ func (c *forwardConfig) CheckValid() error {
 	}
 	if _, _, err := net.SplitHostPort(c.ForwardAddr); err != nil {
 		return fmt.Errorf("forwardaddr is invalid %v", err)
-	}
-	for _, ip := range c.AllowIPs {
-		if _, err := net.ResolveIPAddr("ip", ip); err != nil {
-			if _, _, err := net.ParseCIDR(ip); err != nil {
-				return fmt.Errorf("allowips has invalid ip: %s", ip)
-			}
-		}
 	}
 	return nil
 }
@@ -109,10 +102,39 @@ type config struct {
 	}
 	AuthAddr          string // UDP addr for auth by token
 	AuthKeys          []authKeyConfig
+	Tokens            map[string]string
+	IPRules           map[string]string
 	ForwardConfigs    []forwardConfig
-	GlobalAllowTokens []string // use asterisk(*) for wildcard
-	GlobalAllowIPs    []string // add to all ForwardConfigs
-	GlobalDenyIPs     []string // black list of IP addresses to connect to any port, support CIDR notation
+	GlobalAllowTokens []accessRule // token rules that can auth any port
+	GlobalAllowIPs    []accessRule // add to all ForwardConfigs
+	GlobalDenyIPs     []accessRule // black list of IP addresses to connect to any port, support CIDR notation
+}
+
+type accessRule struct {
+	Token    string
+	TokenRef string
+	IP       string
+	IPRef    string
+	Inline   string `yaml:"-"`
+
+	resolvedValue string
+	ruleID        string
+	ruleType      string
+}
+
+func (r *accessRule) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var inline string
+	if err := unmarshal(&inline); err == nil {
+		r.Inline = inline
+		return nil
+	}
+	type raw accessRule
+	var out raw
+	if err := unmarshal(&out); err != nil {
+		return err
+	}
+	*r = accessRule(out)
+	return nil
 }
 
 type authKeyConfig struct {
@@ -185,6 +207,15 @@ func validateSecret(kind string, value string) error {
 	return nil
 }
 
+func validateIPRule(kind string, value string) error {
+	if _, err := net.ResolveIPAddr("ip", value); err != nil {
+		if _, _, err := net.ParseCIDR(value); err != nil {
+			return fmt.Errorf("%s has invalid ip: %s", kind, value)
+		}
+	}
+	return nil
+}
+
 func (c *config) CheckValid() error {
 	if err := validateIdentifier("serverid", c.ServerID); err != nil {
 		return err
@@ -206,29 +237,139 @@ func (c *config) CheckValid() error {
 		}
 		seenKeys[c.AuthKeys[i].ID] = true
 	}
-	for _, token := range c.GlobalAllowTokens {
-		if token == "*" {
-			return fmt.Errorf("globalallowtokens cannot contain wildcard *")
-		}
-		if err := validateSecret("global allow token", token); err != nil {
+	for id, token := range c.Tokens {
+		if err := validateIdentifier("token id", id); err != nil {
 			return err
 		}
+		if token == "*" {
+			return fmt.Errorf("token %s cannot contain wildcard *", id)
+		}
+		if err := validateSecret("token "+id, token); err != nil {
+			return err
+		}
+	}
+	for id, rule := range c.IPRules {
+		if err := validateIdentifier("ip rule id", id); err != nil {
+			return err
+		}
+		if err := validateIPRule("ip rule "+id, rule); err != nil {
+			return err
+		}
+	}
+	if err := c.resolveTokenRules(c.GlobalAllowTokens, "global", 0); err != nil {
+		return err
+	}
+	if err := c.resolveIPRules(c.GlobalAllowIPs, "global", 0); err != nil {
+		return err
+	}
+	if err := c.resolveIPRules(c.GlobalDenyIPs, "global_deny", 0); err != nil {
+		return err
 	}
 	for i := range c.ForwardConfigs {
 		if err := c.ForwardConfigs[i].CheckValid(); err != nil {
 			return fmt.Errorf("forwardconfigs %d error: %v", i+1, err)
 		}
-		for _, token := range c.ForwardConfigs[i].AllowTokens {
-			if token == "*" {
-				return fmt.Errorf("forwardconfigs %d allowtokens cannot contain wildcard *", i+1)
-			}
-			if err := validateSecret("allow token", token); err != nil {
-				return fmt.Errorf("forwardconfigs %d error: %v", i+1, err)
-			}
+		if err := c.resolveTokenRules(c.ForwardConfigs[i].AllowTokens, "forward", c.ForwardConfigs[i].BindPort); err != nil {
+			return fmt.Errorf("forwardconfigs %d error: %v", i+1, err)
+		}
+		if err := c.resolveIPRules(c.ForwardConfigs[i].AllowIPs, "forward", c.ForwardConfigs[i].BindPort); err != nil {
+			return fmt.Errorf("forwardconfigs %d error: %v", i+1, err)
 		}
 		c.ForwardConfigs[i].SetDefaultValue()
 	}
 	return nil
+}
+
+func (c *config) resolveTokenRules(rules []accessRule, scope string, port uint16) error {
+	for i := range rules {
+		rule, err := c.resolveTokenRule(rules[i], scope, port, i+1)
+		if err != nil {
+			return err
+		}
+		rules[i] = rule
+	}
+	return nil
+}
+
+func (c *config) resolveTokenRule(rule accessRule, scope string, port uint16, index int) (accessRule, error) {
+	if rule.TokenRef != "" {
+		if rule.Token != "" || rule.IP != "" || rule.IPRef != "" || rule.Inline != "" {
+			return rule, fmt.Errorf("tokenref cannot be combined with inline rule")
+		}
+		value, ok := c.Tokens[rule.TokenRef]
+		if !ok {
+			return rule, fmt.Errorf("unknown tokenref %s", rule.TokenRef)
+		}
+		rule.resolvedValue = value
+		rule.ruleID = rule.TokenRef
+		rule.ruleType = "token_ref"
+		return rule, nil
+	}
+	value := rule.Token
+	if value == "" {
+		value = rule.Inline
+	}
+	if value == "" || rule.IP != "" || rule.IPRef != "" {
+		return rule, fmt.Errorf("token rule must contain token or tokenref")
+	}
+	if value == "*" {
+		return rule, fmt.Errorf("token rule cannot contain wildcard *")
+	}
+	if err := validateSecret("token rule", value); err != nil {
+		return rule, err
+	}
+	rule.resolvedValue = value
+	rule.ruleID = inlineRuleID(scope, port, "token", index)
+	rule.ruleType = "inline_token"
+	return rule, nil
+}
+
+func (c *config) resolveIPRules(rules []accessRule, scope string, port uint16) error {
+	for i := range rules {
+		rule, err := c.resolveIPRule(rules[i], scope, port, i+1)
+		if err != nil {
+			return err
+		}
+		rules[i] = rule
+	}
+	return nil
+}
+
+func (c *config) resolveIPRule(rule accessRule, scope string, port uint16, index int) (accessRule, error) {
+	if rule.IPRef != "" {
+		if rule.IP != "" || rule.Token != "" || rule.TokenRef != "" || rule.Inline != "" {
+			return rule, fmt.Errorf("ipref cannot be combined with inline rule")
+		}
+		value, ok := c.IPRules[rule.IPRef]
+		if !ok {
+			return rule, fmt.Errorf("unknown ipref %s", rule.IPRef)
+		}
+		rule.resolvedValue = value
+		rule.ruleID = rule.IPRef
+		rule.ruleType = "ip_ref"
+		return rule, nil
+	}
+	value := rule.IP
+	if value == "" {
+		value = rule.Inline
+	}
+	if value == "" || rule.Token != "" || rule.TokenRef != "" {
+		return rule, fmt.Errorf("ip rule must contain ip or ipref")
+	}
+	if err := validateIPRule("ip rule", value); err != nil {
+		return rule, err
+	}
+	rule.resolvedValue = value
+	rule.ruleID = inlineRuleID(scope, port, "ip", index)
+	rule.ruleType = "inline_ip"
+	return rule, nil
+}
+
+func inlineRuleID(scope string, port uint16, kind string, index int) string {
+	if port == 0 {
+		return fmt.Sprintf("inline:%s:%s:%d", scope, kind, index)
+	}
+	return fmt.Sprintf("inline:%s:%d:%s:%d", scope, port, kind, index)
 }
 
 func (c *config) activeAuthKey() string {

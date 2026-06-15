@@ -84,6 +84,9 @@ func TestSLSHookFiltersSecretFieldsAndSendsSafeMetadata(t *testing.T) {
 		"key_id":               "primary-2026-06",
 		"result":               "ok",
 		"reason":               "authorized",
+		"rule_scope":           "forward",
+		"rule_id":              "ssh-primary",
+		"rule_type":            "token_ref",
 		"drop_delay_ms":        0,
 		"error":                "dial failed",
 		"token":                "token-abcdefghijklmnopqrstuvwxyz",
@@ -116,6 +119,9 @@ func TestSLSHookFiltersSecretFieldsAndSendsSafeMetadata(t *testing.T) {
 		fields["client_id"] != "workstation" ||
 		fields["forward_addr"] != "127.0.0.1:22" ||
 		fields["reason"] != "authorized" ||
+		fields["rule_scope"] != "forward" ||
+		fields["rule_id"] != "ssh-primary" ||
+		fields["rule_type"] != "token_ref" ||
 		fields["drop_delay_ms"] != "0" ||
 		fields["error"] != "dial failed" {
 		t.Fatalf("safe fields missing: %#v", fields)

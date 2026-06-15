@@ -21,7 +21,7 @@ func TestServerConfigRejectsUnsafeAuthSettings(t *testing.T) {
 				ForwardConfigs: []forwardConfig{{
 					BindPort:        40022,
 					ForwardAddr:     "127.0.0.1:22",
-					AllowTokens:     []string{"abcdefghijklmnopqrstuvwxyz123456"},
+					AllowTokens:     []accessRule{{Token: "abcdefghijklmnopqrstuvwxyz123456"}},
 					AuthExpiredTime: &expiry,
 				}},
 			},
@@ -34,7 +34,7 @@ func TestServerConfigRejectsUnsafeAuthSettings(t *testing.T) {
 				ForwardConfigs: []forwardConfig{{
 					BindPort:        40022,
 					ForwardAddr:     "127.0.0.1:22",
-					AllowTokens:     []string{"abcdefghijklmnopqrstuvwxyz123456"},
+					AllowTokens:     []accessRule{{Token: "abcdefghijklmnopqrstuvwxyz123456"}},
 					AuthExpiredTime: &expiry,
 				}},
 			},
@@ -47,7 +47,7 @@ func TestServerConfigRejectsUnsafeAuthSettings(t *testing.T) {
 				ForwardConfigs: []forwardConfig{{
 					BindPort:        40022,
 					ForwardAddr:     "127.0.0.1:22",
-					AllowTokens:     []string{"admin"},
+					AllowTokens:     []accessRule{{Token: "admin"}},
 					AuthExpiredTime: &expiry,
 				}},
 			},
@@ -72,7 +72,7 @@ func TestServerConfigAcceptsConfirmedSSHMigrationConfig(t *testing.T) {
 		ForwardConfigs: []forwardConfig{{
 			BindPort:        40022,
 			ForwardAddr:     "127.0.0.1:22",
-			AllowTokens:     []string{"token-abcdefghijklmnopqrstuvwxyz"},
+			AllowTokens:     []accessRule{{Token: "token-abcdefghijklmnopqrstuvwxyz"}},
 			AuthExpiredTime: &expiry,
 		}},
 	}
@@ -95,7 +95,7 @@ func TestServerConfigValidatesAuthKeys(t *testing.T) {
 		ForwardConfigs: []forwardConfig{{
 			BindPort:        40022,
 			ForwardAddr:     "127.0.0.1:22",
-			AllowTokens:     []string{"token-abcdefghijklmnopqrstuvwxyz"},
+			AllowTokens:     []accessRule{{Token: "token-abcdefghijklmnopqrstuvwxyz"}},
 			AuthExpiredTime: &expiry,
 		}},
 	}
@@ -137,12 +137,9 @@ func TestServerConfigAllowsTokenRotationWindow(t *testing.T) {
 		AuthAddr: "127.0.0.1:40100",
 		AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
 		ForwardConfigs: []forwardConfig{{
-			BindPort:    40022,
-			ForwardAddr: "127.0.0.1:22",
-			AllowTokens: []string{
-				"old-token-abcdefghijklmnopqrstuvwxyz",
-				"new-token-abcdefghijklmnopqrstuvwxyz",
-			},
+			BindPort:        40022,
+			ForwardAddr:     "127.0.0.1:22",
+			AllowTokens:     []accessRule{{Token: "old-token-abcdefghijklmnopqrstuvwxyz"}, {Token: "new-token-abcdefghijklmnopqrstuvwxyz"}},
 			AuthExpiredTime: &expiry,
 		}},
 	}
@@ -159,12 +156,66 @@ func TestServerConfigAllowsTokenRotationWindow(t *testing.T) {
 	}
 }
 
+func TestServerConfigResolvesTokenAndIPReferences(t *testing.T) {
+	expiry := uint32(60)
+	cfg := config{
+		ServerID: "connauth-server",
+		AuthAddr: "127.0.0.1:40100",
+		AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
+		Tokens: map[string]string{
+			"ssh-primary": "token-abcdefghijklmnopqrstuvwxyz",
+		},
+		IPRules: map[string]string{
+			"office-primary": "198.51.100.10",
+		},
+		GlobalAllowIPs: []accessRule{{IPRef: "office-primary"}},
+		ForwardConfigs: []forwardConfig{{
+			BindPort:        40022,
+			ForwardAddr:     "127.0.0.1:22",
+			AllowTokens:     []accessRule{{TokenRef: "ssh-primary"}, {Token: "inline-token-abcdefghijklmnopqrstuvwxyz"}},
+			AllowIPs:        []accessRule{{IPRef: "office-primary"}, {IP: "192.0.2.10"}},
+			AuthExpiredTime: &expiry,
+		}},
+	}
+	if err := cfg.CheckValid(); err != nil {
+		t.Fatalf("expected ref config to be valid: %v", err)
+	}
+	if cfg.ForwardConfigs[0].AllowTokens[0].resolvedValue != "token-abcdefghijklmnopqrstuvwxyz" ||
+		cfg.ForwardConfigs[0].AllowTokens[0].ruleID != "ssh-primary" ||
+		cfg.ForwardConfigs[0].AllowTokens[1].ruleID != "inline:forward:40022:token:2" {
+		t.Fatalf("unexpected resolved token rules: %#v", cfg.ForwardConfigs[0].AllowTokens)
+	}
+	if cfg.GlobalAllowIPs[0].resolvedValue != "198.51.100.10" ||
+		cfg.GlobalAllowIPs[0].ruleID != "office-primary" ||
+		cfg.ForwardConfigs[0].AllowIPs[1].ruleID != "inline:forward:40022:ip:2" {
+		t.Fatalf("unexpected resolved ip rules: global=%#v forward=%#v", cfg.GlobalAllowIPs, cfg.ForwardConfigs[0].AllowIPs)
+	}
+}
+
+func TestServerConfigRejectsUnknownRuleReferences(t *testing.T) {
+	expiry := uint32(60)
+	cfg := config{
+		ServerID: "connauth-server",
+		AuthAddr: "127.0.0.1:40100",
+		AuthKeys: []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
+		ForwardConfigs: []forwardConfig{{
+			BindPort:        40022,
+			ForwardAddr:     "127.0.0.1:22",
+			AllowTokens:     []accessRule{{TokenRef: "missing-token"}},
+			AuthExpiredTime: &expiry,
+		}},
+	}
+	if err := cfg.CheckValid(); err == nil {
+		t.Fatal("expected unknown token ref to be rejected")
+	}
+}
+
 func TestServerConfigRejectsWildcardGlobalToken(t *testing.T) {
 	cfg := config{
 		ServerID:          "connauth-server",
 		AuthAddr:          "127.0.0.1:40100",
 		AuthKeys:          []authKeyConfig{{ID: "primary-2026-06", Key: "abcdefghijklmnopqrstuvwxyz123456"}},
-		GlobalAllowTokens: []string{"*"},
+		GlobalAllowTokens: []accessRule{{Token: "*"}},
 	}
 	if err := cfg.CheckValid(); err == nil {
 		t.Fatal("expected wildcard global token to be rejected")

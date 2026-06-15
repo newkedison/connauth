@@ -36,7 +36,7 @@ func TestAuthClientDoesNotLogToken(t *testing.T) {
 			{
 				BindPort:        2222,
 				ForwardAddr:     "127.0.0.1:22",
-				AllowTokens:     []string{token},
+				AllowTokens:     []accessRule{{Token: token}},
 				AuthExpiredTime: &expiry,
 			},
 		},
@@ -67,7 +67,7 @@ func TestChallengeRequestRespondsAndResponseSilentlyAuthorizes(t *testing.T) {
 		ForwardConfigs: []forwardConfig{{
 			BindPort:        40022,
 			ForwardAddr:     "127.0.0.1:22",
-			AllowTokens:     []string{token},
+			AllowTokens:     []accessRule{{Token: token}},
 			AuthExpiredTime: &expiry,
 		}},
 	}
@@ -191,7 +191,7 @@ func TestChallengeResponseWithWrongTokenIsSilentAndDoesNotAuthorize(t *testing.T
 		ForwardConfigs: []forwardConfig{{
 			BindPort:        40022,
 			ForwardAddr:     "127.0.0.1:22",
-			AllowTokens:     []string{token},
+			AllowTokens:     []accessRule{{Token: token}},
 			AuthExpiredTime: &expiry,
 		}},
 	}
@@ -223,7 +223,7 @@ func TestChallengeRequestForUnknownPortStillReturnsChallenge(t *testing.T) {
 		ForwardConfigs: []forwardConfig{{
 			BindPort:        40022,
 			ForwardAddr:     "127.0.0.1:22",
-			AllowTokens:     []string{"token-abcdefghijklmnopqrstuvwxyz"},
+			AllowTokens:     []accessRule{{Token: "token-abcdefghijklmnopqrstuvwxyz"}},
 			AuthExpiredTime: &expiry,
 		}},
 	}
@@ -251,7 +251,7 @@ func TestCapturedChallengeResponseCannotBeReplayed(t *testing.T) {
 		ForwardConfigs: []forwardConfig{{
 			BindPort:        40022,
 			ForwardAddr:     "127.0.0.1:22",
-			AllowTokens:     []string{token},
+			AllowTokens:     []accessRule{{Token: token}},
 			AuthExpiredTime: &expiry,
 		}},
 	}
@@ -291,12 +291,12 @@ func TestAuthorizationStateSeparatesClientIDAndExpiresOnLookup(t *testing.T) {
 		ForwardConfigs: []forwardConfig{{
 			BindPort:        40022,
 			ForwardAddr:     "127.0.0.1:22",
-			AllowTokens:     []string{token},
+			AllowTokens:     []accessRule{{Token: token}},
 			AuthExpiredTime: &expiry,
 		}},
 	}
 	initClientList()
-	if !authorizeClient("192.0.2.10", "workstation", 40022, token) {
+	if !authorizeClient("192.0.2.10", "workstation", 40022, token).Authorized {
 		t.Fatal("expected client to be authorized")
 	}
 	if !isClientAuthed(&globalConfig.ForwardConfigs[0], net.ParseIP("192.0.2.10"), "workstation") {
@@ -321,20 +321,18 @@ func TestGlobalDenyOverridesClientAuthorization(t *testing.T) {
 	token := "token-abcdefghijklmnopqrstuvwxyz"
 	expiry := uint32(60)
 	globalConfig = &config{
-		ServerID: "connauth-server",
-		AuthAddr: "127.0.0.1:40100",
-		GlobalDenyIPs: []string{
-			"192.0.2.10",
-		},
+		ServerID:      "connauth-server",
+		AuthAddr:      "127.0.0.1:40100",
+		GlobalDenyIPs: []accessRule{{IP: "192.0.2.10"}},
 		ForwardConfigs: []forwardConfig{{
 			BindPort:        40022,
 			ForwardAddr:     "127.0.0.1:22",
-			AllowTokens:     []string{token},
+			AllowTokens:     []accessRule{{Token: token}},
 			AuthExpiredTime: &expiry,
 		}},
 	}
 	initClientList()
-	if !authorizeClient("192.0.2.10", "workstation", 40022, token) {
+	if !authorizeClient("192.0.2.10", "workstation", 40022, token).Authorized {
 		t.Fatal("expected token authorization state to be written")
 	}
 	if isClientAuthed(&globalConfig.ForwardConfigs[0], net.ParseIP("192.0.2.10"), "workstation") {
@@ -351,7 +349,7 @@ func TestAuthorizationStateHasGlobalCapacityLimit(t *testing.T) {
 		ForwardConfigs: []forwardConfig{{
 			BindPort:        40022,
 			ForwardAddr:     "127.0.0.1:22",
-			AllowTokens:     []string{token},
+			AllowTokens:     []accessRule{{Token: token}},
 			AuthExpiredTime: &expiry,
 		}},
 	}
@@ -362,10 +360,10 @@ func TestAuthorizationStateHasGlobalCapacityLimit(t *testing.T) {
 		maxAuthorizedClients = previousLimit
 	}()
 
-	if !authorizeClient("192.0.2.10", "workstation", 40022, token) {
+	if !authorizeClient("192.0.2.10", "workstation", 40022, token).Authorized {
 		t.Fatal("expected first authorization to fit capacity")
 	}
-	if authorizeClient("192.0.2.11", "workstation", 40022, token) {
+	if authorizeClient("192.0.2.11", "workstation", 40022, token).Authorized {
 		t.Fatal("expected second authorization to be rejected at capacity")
 	}
 }

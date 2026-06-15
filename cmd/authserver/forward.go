@@ -153,7 +153,7 @@ func startForward(cfg *forwardConfig) error {
 					"result":        "rejected",
 					"reason":        "not_authed",
 					"drop_delay_ms": *cfg.DropDelayTime,
-				}).Infof("%v haven't auth yet, close after %d ms", conn.RemoteAddr(), *cfg.DropDelayTime)
+				}).Warnf("%v haven't auth yet, close after %d ms", conn.RemoteAddr(), *cfg.DropDelayTime)
 				if *cfg.DropDelayTime == 0 {
 					_ = conn.Close()
 				} else {
@@ -165,7 +165,7 @@ func startForward(cfg *forwardConfig) error {
 							"port":        cfg.BindPort,
 							"result":      "closed",
 							"reason":      "drop_delay_elapsed",
-						}).Infof("%v was closed", conn.RemoteAddr())
+						}).Debugf("%v was closed", conn.RemoteAddr())
 						_ = conn.Close()
 					})
 				}

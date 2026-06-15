@@ -137,6 +137,9 @@ func safeSLSFields(entry *logrus.Entry) map[string]interface{} {
 		"key_id":        true,
 		"result":        true,
 		"reason":        true,
+		"rule_scope":    true,
+		"rule_id":       true,
+		"rule_type":     true,
 		"drop_delay_ms": true,
 		"error":         true,
 	}

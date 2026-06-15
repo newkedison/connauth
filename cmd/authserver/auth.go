@@ -21,6 +21,14 @@ type authorizedClientState struct {
 	ExpiresAt time.Time
 }
 
+type authResult struct {
+	Authorized bool
+	Renewed    bool
+	RuleScope  string
+	RuleID     string
+	RuleType   string
+}
+
 var allClientList map[*forwardConfig]map[authorizedClientKey]authorizedClientState
 var muxClient sync.Mutex
 var pendingChallenges = newPendingChallengeStore(10000, 16)
@@ -64,9 +72,13 @@ func isIPMatchRule(ip net.IP, rule string) bool {
 	}
 }
 
-func isIPMatchRules(ip net.IP, rules []string) bool {
+func isIPMatchRules(ip net.IP, rules []accessRule) bool {
 	for _, r := range rules {
-		if isIPMatchRule(ip, r) {
+		value := r.resolvedValue
+		if value == "" && r.IP != "" {
+			value = r.IP
+		}
+		if isIPMatchRule(ip, value) {
 			return true
 		}
 	}
@@ -132,41 +144,60 @@ func isIPDenied(ip net.IP) bool {
 	return isIPMatchRules(ip, globalConfig.GlobalDenyIPs)
 }
 
-func isTokenMatchRules(token string, rules []string) bool {
-	for _, r := range rules {
-		if glob.Glob(r, token) {
-			return true
+func matchTokenRules(token string, scope string, rules []accessRule) (authResult, bool) {
+	for i, r := range rules {
+		value := r.resolvedValue
+		ruleID := r.ruleID
+		ruleType := r.ruleType
+		if value == "" && r.Token != "" {
+			value = r.Token
+			ruleID = inlineRuleID(scope, 0, "token", i+1)
+			ruleType = "inline_token"
+		}
+		if glob.Glob(value, token) {
+			return authResult{
+				Authorized: true,
+				RuleScope:  scope,
+				RuleID:     ruleID,
+				RuleType:   ruleType,
+			}, true
 		}
 	}
-	return false
+	return authResult{}, false
 }
 
 func authClient(req utils.AuthRequest, ip string) bool {
-	return authorizeClient(ip, "", req.Port, req.Token)
+	return authorizeClient(ip, "", req.Port, req.Token).Authorized
 }
 
-func authorizeClient(ip string, clientID string, port uint16, token string) bool {
+func authorizeClient(ip string, clientID string, port uint16, token string) authResult {
 	for i := range globalConfig.ForwardConfigs {
 		cfg := &globalConfig.ForwardConfigs[i]
 		if cfg.BindPort != port {
 			continue
 		}
-		if isTokenMatchRules(token, globalConfig.GlobalAllowTokens) ||
-			isTokenMatchRules(token, cfg.AllowTokens) {
+		result, ok := matchTokenRules(token, "global", globalConfig.GlobalAllowTokens)
+		if !ok {
+			result, ok = matchTokenRules(token, "forward", cfg.AllowTokens)
+		}
+		if ok {
 			muxClient.Lock()
 			key := authorizedClientKey{IP: ip, ClientID: clientID}
 			list := allClientList[cfg]
-			cleanupAuthorizedClientList(list, time.Now())
-			if _, exists := list[key]; !exists && maxAuthorizedClients > 0 && len(list) >= maxAuthorizedClients {
+			now := time.Now()
+			cleanupAuthorizedClientList(list, now)
+			_, exists := list[key]
+			if !exists && maxAuthorizedClients > 0 && len(list) >= maxAuthorizedClients {
 				muxClient.Unlock()
-				return false
+				return authResult{}
 			}
-			list[key] = authorizedClientState{ExpiresAt: time.Now().Add(time.Second * time.Duration(*cfg.AuthExpiredTime))}
+			list[key] = authorizedClientState{ExpiresAt: now.Add(time.Second * time.Duration(*cfg.AuthExpiredTime))}
 			muxClient.Unlock()
-			return true
+			result.Renewed = exists
+			return result
 		}
 	}
-	return false
+	return authResult{}
 }
 
 func cleanupAuthorizedClientList(list map[authorizedClientKey]authorizedClientState, now time.Time) {
@@ -351,15 +382,26 @@ func handleChallengeResponse(peer *net.UDPAddr, env authproto.Envelope, plain []
 		log.Debugf("challenge response from %s ignored: no pending challenge", peer.IP.String())
 		return
 	}
-	if authorizeClient(peer.IP.String(), resp.ClientID, resp.Port, resp.Token) {
-		log.WithFields(log.Fields{
-			"event":     "auth_success",
-			"source_ip": peer.IP.String(),
-			"client_id": resp.ClientID,
-			"key_id":    env.KeyID,
-			"port":      resp.Port,
-			"result":    "success",
-		}).Infof("Auth IP %v to port %d", peer.IP, resp.Port)
+	result := authorizeClient(peer.IP.String(), resp.ClientID, resp.Port, resp.Token)
+	if result.Authorized {
+		fields := log.Fields{
+			"event":      "auth_success",
+			"source_ip":  peer.IP.String(),
+			"client_id":  resp.ClientID,
+			"key_id":     env.KeyID,
+			"port":       resp.Port,
+			"result":     "success",
+			"rule_scope": result.RuleScope,
+			"rule_id":    result.RuleID,
+			"rule_type":  result.RuleType,
+		}
+		if result.Renewed {
+			fields["event"] = "auth_renewed"
+			fields["result"] = "renewed"
+			log.WithFields(fields).Debugf("Auth IP %v renewed to port %d", peer.IP, resp.Port)
+		} else {
+			log.WithFields(fields).Infof("Auth IP %v to port %d", peer.IP, resp.Port)
+		}
 	} else {
 		log.WithFields(log.Fields{
 			"event":     "auth_failed",

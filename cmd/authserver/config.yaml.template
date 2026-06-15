@@ -39,6 +39,13 @@ authkeys:
     notbefore: "2026-06-01T00:00:00Z"
     notafter: "2026-09-01T00:00:00Z"
 
+# reusable token and IP rules. Logs record only rule IDs, never token values.
+tokens:
+  ssh-primary: "CHANGE_ME_RANDOM_TOKEN"
+
+iprules:
+  office-primary: "192.168.0.0/16"
+
 # list all forward configs here
 forwardconfigs:
   # bind to TCP port of all network interfaces
@@ -46,16 +53,17 @@ forwardconfigs:
     # this was the address of real backend
     # will forward connections from bindport to forwardaddr if the ip of client was authed
     forwardaddr: "127.0.0.1:22"
-    # list all valid tokens here, use asterisk(*) for wildcard
+    # list all valid tokens here. Use tokenref for reusable rules or token for one-off inline values.
     # can be omit, default: empty
     allowtokens:
-      - "CHANGE_ME_RANDOM_TOKEN"
-    # list all valid IPs here, connections from these IPs will always accept
+      - tokenref: "ssh-primary"
+      # - token: "CHANGE_ME_ONE_OFF_RANDOM_TOKEN"
+    # list all valid IPs here. Connections from these IPs will always accept.
     # support CIDR notation
     # can be omit, default: empty
     allowips:
-      - "127.0.0.1"
-      - "192.168.0.0/16"
+      - ipref: "office-primary"
+      - ip: "127.0.0.1"
     # milliseconds before close unauth connection, 0 for close immediately
     # can be omit, default: 0
     dropdelaytime: 0
@@ -78,8 +86,8 @@ globalallowtokens: []
 
 # these IPs can connect to any port without auth
 globalallowips:
-  - "10.0.0.0/8"
+  - ipref: "office-primary"
 
 # these IPs cannot connect to any port even if it has a valid token or listing in globalallowips and allowips
 globaldenyips:
-  - "1.0.0.0/8"
+  - ip: "1.0.0.0/8"
