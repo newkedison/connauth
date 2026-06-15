@@ -179,6 +179,46 @@ func TestChallengeRequestWithExpiredRuntimeKeyIsSilent(t *testing.T) {
 	}
 }
 
+func TestChallengeAuthAllowsMultipleActiveKeysDuringRotation(t *testing.T) {
+	token := "token-abcdefghijklmnopqrstuvwxyz"
+	oldKey := "old-auth-key-abcdefghijklmnopqrstuvwxyz"
+	newKey := "new-auth-key-abcdefghijklmnopqrstuvwxyz"
+	authAddr := freeUDPAddr(t)
+	expiry := uint32(60)
+	globalConfig = &config{
+		ServerID: "connauth-server",
+		AuthAddr: authAddr,
+		AuthKeys: []authKeyConfig{
+			{ID: "old-2026-06", Key: oldKey},
+			{ID: "new-2026-07", Key: newKey},
+		},
+		ForwardConfigs: []forwardConfig{{
+			BindPort:        40022,
+			ForwardAddr:     "127.0.0.1:22",
+			AllowTokens:     []accessRule{{Token: token}},
+			AuthExpiredTime: &expiry,
+		}},
+	}
+	initClientList()
+	stopAuth := startAuthForTest(t, authAddr)
+	defer stopAuth()
+
+	if err := sendChallengeAuthForTest(authAddr, "old-2026-06", oldKey, "connauth-server", "old-client", token, 40022); err != nil {
+		t.Fatalf("old key auth failed: %v", err)
+	}
+	if !waitForClientAuthForTest(&globalConfig.ForwardConfigs[0], net.ParseIP("127.0.0.1"), "old-client") {
+		t.Fatal("expected old key client to be authorized")
+	}
+	clearAuthedIPForTest(&globalConfig.ForwardConfigs[0], "127.0.0.1")
+
+	if err := sendChallengeAuthForTest(authAddr, "new-2026-07", newKey, "connauth-server", "new-client", token, 40022); err != nil {
+		t.Fatalf("new key auth failed: %v", err)
+	}
+	if !waitForClientAuthForTest(&globalConfig.ForwardConfigs[0], net.ParseIP("127.0.0.1"), "new-client") {
+		t.Fatal("expected new key client to be authorized")
+	}
+}
+
 func TestChallengeResponseWithWrongTokenIsSilentAndDoesNotAuthorize(t *testing.T) {
 	token := "token-abcdefghijklmnopqrstuvwxyz"
 	authKey := "abcdefghijklmnopqrstuvwxyz123456"
@@ -540,4 +580,15 @@ func clearAuthedIPForTest(cfg *forwardConfig, ip string) {
 			delete(allClientList[cfg], key)
 		}
 	}
+}
+
+func waitForClientAuthForTest(cfg *forwardConfig, ip net.IP, clientID string) bool {
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if isClientAuthed(cfg, ip, clientID) {
+			return true
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return false
 }
