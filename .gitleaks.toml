@@ -1,0 +1,11 @@
+[allowlist]
+description = "Allow fixed non-secret test fixtures used to validate unsafe config rejection."
+regexes = [
+  '''abcdefghijklmnopqrstuvwxyz123456''',
+  '''zyxwvutsrqponmlkjihgfedcba654321''',
+  '''token-abcdefghijklmnopqrstuvwxyz''',
+  '''old-token-abcdefghijklmnopqrstuvwxyz''',
+  '''new-token-abcdefghijklmnopqrstuvwxyz''',
+  '''wrong-token-abcdefghijklmnopqrstuvwxyz''',
+  '''inline-token-abcdefghijklmnopqrstuvwxyz''',
+]

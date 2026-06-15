@@ -1,4 +1,5 @@
 .*
+!.gitleaks.toml
 *~
 connauth
 *.exe
